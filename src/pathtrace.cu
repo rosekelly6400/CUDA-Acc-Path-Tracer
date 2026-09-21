@@ -291,7 +291,8 @@ __global__ void shadeFakeMaterial(
                 }
                 else {
                     float lightTerm = glm::abs(glm::dot(intersection.surfaceNormal, pathSegments[idx].ray.direction));
-                    pathSegments[idx].throughput *= (materialColor * lightTerm) / pathSegments[idx].pdf;
+                    pathSegments[idx].throughput *= (materialColor * lightTerm);
+                    //pathSegments[idx].color = pathSegments[idx].throughput;
                 }
                 
          
