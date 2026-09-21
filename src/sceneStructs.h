@@ -72,6 +72,8 @@ struct PathSegment
 {
     Ray ray;
     glm::vec3 color;
+    glm::vec3 throughput;
+    float pdf;
     int pixelIndex;
     int remainingBounces;
 };
@@ -83,5 +85,6 @@ struct ShadeableIntersection
 {
   float t;
   glm::vec3 surfaceNormal;
+  glm::vec3 intersectionPoint;
   int materialId;
 };

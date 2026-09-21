@@ -4,6 +4,7 @@
 
 #include <thrust/random.h>
 
+// is this in world coordinates?
 __host__ __device__ glm::vec3 calculateRandomDirectionInHemisphere(
     glm::vec3 normal,
     thrust::default_random_engine &rng)
@@ -54,4 +55,13 @@ __host__ __device__ void scatterRay(
     // TODO: implement this.
     // A basic implementation of pure-diffuse shading will just call the
     // calculateRandomDirectionInHemisphere defined above.
+    pathSegment.ray.direction = glm::normalize(calculateRandomDirectionInHemisphere(normal, rng));
+    //if (pathSegment.ray.direction.z < 0) pathSegment.ray.direction.z *= -1.0f;
+
+    //get pdf for diffuse material
+    // needs to be local z dir
+    pathSegment.pdf = glm::dot(pathSegment.ray.direction, glm::normalize(normal)) / PI;
+
+
+    pathSegment.ray.origin = 4.0f * EPSILON * normal + intersect;
 }
