@@ -45,6 +45,35 @@ __host__ __device__ glm::vec3 calculateRandomDirectionInHemisphere(
         + sin(around) * over * perpendicularDirection2;
 }
 
+__host__ __device__ glm::vec2 sampleUniformDiskConcentric(thrust::default_random_engine& rng)
+{
+    thrust::uniform_real_distribution<float> u01(-1, 1);
+
+    float x = u01(rng);
+    float y = u01(rng);
+    float theta = 0;
+    float r = 0;
+    if (std::abs(x) > std::abs(y)) {
+        r = x;
+        theta = (PI / 4.0f) * (x / y);
+    }
+    else {
+        r = y;
+        theta = (PI / 2.0f) - ((PI / 4.0f) * (x / y));
+    }
+
+    return r * glm::vec2(std::cos(theta), std::sin(theta));
+}
+
+__host__ __device__ glm::vec3 sampleCosineHemisphere(
+    glm::vec3 normal,
+    thrust::default_random_engine& rng)
+{
+    glm::vec2 d = sampleUniformDiskConcentric(rng);
+    float z = sqrt(1.0f - d.x * d.x - d.y * d.y);
+    return glm::vec3(d.x, d.y, z);
+}
+
 __host__ __device__ void scatterRay(
     PathSegment & pathSegment,
     glm::vec3 intersect,
@@ -55,8 +84,18 @@ __host__ __device__ void scatterRay(
     // TODO: implement this.
     // A basic implementation of pure-diffuse shading will just call the
     // calculateRandomDirectionInHemisphere defined above.
-    pathSegment.ray.direction = glm::normalize(calculateRandomDirectionInHemisphere(normal, rng));
-    pathSegment.ray.origin = EPSILON * pathSegment.ray.direction + intersect;
+    //pathSegment.ray.direction = glm::normalize(calculateRandomDirectionInHemisphere(normal, rng));
+
+    // if reflective
+    if (m.hasReflective > 0.0f)
+    {
+        pathSegment.ray.direction = glm::reflect(pathSegment.ray.direction, normal);
+    }
+    else {
+        pathSegment.ray.direction = glm::normalize(calculateRandomDirectionInHemisphere(normal, rng));
+    }
+
+    pathSegment.ray.origin = EPSILON * normal + intersect;
     //get pdf for diffuse material
     // below should be equal to cos(theta) over PI
     pathSegment.pdf = glm::dot(pathSegment.ray.direction, glm::normalize(normal)) / PI;

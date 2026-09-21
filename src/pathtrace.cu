@@ -254,7 +254,7 @@ __global__ void shadeFakeMaterial(
           // Set up the RNG
           // LOOK: this is how you use thrust's RNG! Please look at
           // makeSeededRandomEngine as well.
-            thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, 0);
+            thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, pathSegments[idx].remainingBounces);
             thrust::uniform_real_distribution<float> u01(0, 1);
 
             Material material = materials[intersection.materialId];
@@ -284,14 +284,14 @@ __global__ void shadeFakeMaterial(
                 pathSegments[idx].remainingBounces--;
 
                 // if pdf is 0 or less (outside probable ray bounce directions) terminate ray
-                if (pathSegments[idx].pdf <= 0.f)
+                if (pathSegments[idx].pdf <= EPSILON)
                 {
                     pathSegments[idx].throughput *= 0.f;
                     pathSegments[idx].remainingBounces = 0;
                 }
                 else {
                     float lightTerm = glm::abs(glm::dot(intersection.surfaceNormal, pathSegments[idx].ray.direction));
-                    pathSegments[idx].throughput *= (materialColor * lightTerm);
+                    pathSegments[idx].throughput *= (materialColor * lightTerm) / pathSegments[idx].pdf;
                     //pathSegments[idx].color = pathSegments[idx].throughput;
                 }
                 
