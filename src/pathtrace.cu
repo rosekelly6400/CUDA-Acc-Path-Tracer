@@ -144,7 +144,7 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         PathSegment& segment = pathSegments[index];
 
         segment.ray.origin = cam.position;
-        segment.color = glm::vec3(1.0f, 1.0f, 1.0f);
+        segment.color = glm::vec3(0.0f, 0.0f, 0.0f);
         segment.throughput = glm::vec3(1.0f, 1.0f, 1.0f);
         segment.pdf = 1.0f;
 
@@ -263,7 +263,7 @@ __global__ void shadeFakeMaterial(
             // If the material indicates that the object was a light, "light" the ray
             if (material.emittance > 0.0f) {
                 pathSegments[idx].color = pathSegments[idx].throughput * (materialColor * material.emittance);
-                // TO DO: end the path here
+                // end the path here
                 pathSegments[idx].remainingBounces = 0;
             }
             // Otherwise, do some pseudo-lighting computation. This is actually more
@@ -283,24 +283,15 @@ __global__ void shadeFakeMaterial(
                     rng);
                 pathSegments[idx].remainingBounces--;
 
+                // if pdf is 0 or less (outside probable ray bounce directions) terminate ray
                 if (pathSegments[idx].pdf <= 0.f)
                 {
                     pathSegments[idx].throughput *= 0.f;
-                    pathSegments[idx].color = pathSegments[idx].throughput;
                     pathSegments[idx].remainingBounces = 0;
                 }
                 else {
-                    float lightTerm = glm::dot(intersection.surfaceNormal, pathSegments[idx].ray.direction);
-                    if (lightTerm > 0.0f)
-                    {
-                        pathSegments[idx].throughput *= (materialColor * lightTerm);
-                        pathSegments[idx].color = pathSegments[idx].throughput;
-                    }
-                    else {
-                        pathSegments[idx].throughput *= 0.f;
-                        pathSegments[idx].color = pathSegments[idx].throughput;
-                        pathSegments[idx].remainingBounces = 0;
-                    }
+                    float lightTerm = glm::abs(glm::dot(intersection.surfaceNormal, pathSegments[idx].ray.direction));
+                    pathSegments[idx].throughput *= (materialColor * lightTerm) / pathSegments[idx].pdf;
                 }
                 
          
@@ -391,7 +382,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     // Shoot ray into scene, bounce between objects, push shading chunks
 
     bool iterationComplete = false;
-    while (depth < 3)
+    while (depth < traceDepth)
     {
         // clean shading chunks
         cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
@@ -432,6 +423,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         {
             guiData->TracedDepth = depth;
         }
+        cudaDeviceSynchronize();
     }
 
     // Assemble this iteration and apply it to the image
