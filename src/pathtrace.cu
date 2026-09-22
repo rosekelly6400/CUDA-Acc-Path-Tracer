@@ -61,9 +61,9 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution, int iter, glm
         glm::vec3 pix = image[index];
 
         glm::ivec3 color;
-        color.x = glm::clamp((int)(pix.x / iter * 255.0), 0, 255);
-        color.y = glm::clamp((int)(pix.y / iter * 255.0), 0, 255);
-        color.z = glm::clamp((int)(pix.z / iter * 255.0), 0, 255);
+        color.x = glm::clamp((int)((pix.x / iter) * 255.0), 0, 255);
+        color.y = glm::clamp((int)((pix.y / iter) * 255.0), 0, 255);
+        color.z = glm::clamp((int)((pix.z / iter) * 255.0), 0, 255);
 
         // Each thread writes one pixel location in the texture (textel)
         pbo[index].w = 0;
@@ -263,17 +263,9 @@ __global__ void shadeFakeMaterial(
             // If the material indicates that the object was a light, "light" the ray
             if (material.emittance > 0.0f) {
                 pathSegments[idx].color = pathSegments[idx].throughput * (materialColor * material.emittance);
-                // end the path here
                 pathSegments[idx].remainingBounces = 0;
             }
-            // Otherwise, do some pseudo-lighting computation. This is actually more
-            // like what you would expect from shading in a rasterizer like OpenGL.
-            // TODO: replace this! you should be able to start with basically a one-liner
             else {
-                //float lightTerm = glm::dot(intersection.surfaceNormal, glm::vec3(0.0f, 1.0f, 0.0f));
-                //pathSegments[idx].color *= (materialColor * lightTerm) * 0.3f + ((1.0f - intersection.t * 0.02f) * materialColor) * 0.7f;
-                //pathSegments[idx].color *= u01(rng); // apply some noise because why not
-
                 // calculate bounced ray dir
                 scatterRay(
                     pathSegments[idx],
@@ -286,13 +278,11 @@ __global__ void shadeFakeMaterial(
                 // if pdf is 0 or less (outside probable ray bounce directions) terminate ray
                 if (pathSegments[idx].pdf <= EPSILON)
                 {
-                    pathSegments[idx].throughput *= 0.f;
                     pathSegments[idx].remainingBounces = 0;
                 }
                 else {
                     float lightTerm = glm::abs(glm::dot(intersection.surfaceNormal, pathSegments[idx].ray.direction));
                     pathSegments[idx].throughput *= (materialColor * lightTerm) / pathSegments[idx].pdf;
-                    //pathSegments[idx].color = pathSegments[idx].throughput;
                 }
                 
          
@@ -382,7 +372,6 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     // --- PathSegment Tracing Stage ---
     // Shoot ray into scene, bounce between objects, push shading chunks
 
-    bool iterationComplete = false;
     while (depth < traceDepth)
     {
         // clean shading chunks
@@ -418,7 +407,6 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_paths,
             dev_materials
         );
-        iterationComplete = true; // TODO: should be based off stream compaction results.
 
         if (guiData != NULL)
         {
