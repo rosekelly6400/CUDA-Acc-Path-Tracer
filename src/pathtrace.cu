@@ -6,6 +6,10 @@
 #include <thrust/execution_policy.h>
 #include <thrust/random.h>
 #include <thrust/remove.h>
+#include <thrust/device_vector.h>
+#include <thrust/host_vector.h>
+#include <thrust/scan.h>
+#include <thrust/sort.h>
 
 #include "sceneStructs.h"
 #include "scene.h"
@@ -81,6 +85,7 @@ static Material* dev_materials = NULL;
 static PathSegment* dev_paths = NULL;
 static ShadeableIntersection* dev_intersections = NULL;
 // TODO: static variables for device memory, any extra info you need, etc
+static glm::vec3* dev_tempImage = NULL;
 // ...
 
 void InitDataContainer(GuiDataContainer* imGuiData)
@@ -110,6 +115,8 @@ void pathtraceInit(Scene* scene)
     cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
 
     // TODO: initialize any extra device memeory you need
+    cudaMalloc(&dev_tempImage, pixelcount * sizeof(glm::vec3));
+    cudaMemset(dev_tempImage, 0, pixelcount * sizeof(glm::vec3));
 
     checkCUDAError("pathtraceInit");
 }
@@ -122,7 +129,7 @@ void pathtraceFree()
     cudaFree(dev_materials);
     cudaFree(dev_intersections);
     // TODO: clean up any extra device memory you created
-
+    cudaFree(dev_tempImage);
     checkCUDAError("pathtraceFree");
 }
 
@@ -149,9 +156,15 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         segment.pdf = 1.0f;
 
         // TODO: implement antialiasing by jittering the ray
+        int sampleX = (iter % 16) / 4;
+        int sampleY = iter % 4;
+        thrust::default_random_engine rng = makeSeededRandomEngine(iter, x*iter, y*iter );
+        thrust::uniform_real_distribution<float> u01(0, 0.25);
+        float xRandom = u01(rng);
+        float yRandom = u01(rng);
         segment.ray.direction = glm::normalize(cam.view
-            - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f)
-            - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f)
+            - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f - ((float)sampleX * cam.pixelLength.x * 0.25f + xRandom))
+            - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f - ((float)sampleY * cam.pixelLength.y * 0.25f + yRandom))
         );
 
         segment.pixelIndex = index;
@@ -282,7 +295,7 @@ __global__ void shadeFakeMaterial(
                 }
                 else {
                     float lightTerm = glm::abs(glm::dot(intersection.surfaceNormal, pathSegments[idx].ray.direction));
-                    pathSegments[idx].throughput *= (materialColor * lightTerm) / pathSegments[idx].pdf;
+                    pathSegments[idx].throughput *= (pathSegments[idx].color*lightTerm) / pathSegments[idx].pdf;
                 }
                 
          
@@ -312,6 +325,45 @@ __global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iteration
     }
 }
 
+__global__ void tempGather(int nPaths, glm::vec3* image, PathSegment* iterationPaths)
+{
+    int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+    if (index < nPaths)
+    {
+        PathSegment iterationPath = iterationPaths[index];
+        image[iterationPath.pixelIndex] = iterationPath.color;
+    }
+}
+
+__global__ void finalGatherFromTempImage(int numPixels, glm::vec3* image, glm::vec3* tempImage)
+{
+    int index = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+    if (index < numPixels)
+    {
+        image[index] += tempImage[index];
+    }
+}
+
+struct is_terminated
+{
+    __host__ __device__
+        bool operator()(const PathSegment x)
+    {
+        return x.remainingBounces <= 0;
+    }
+};
+
+struct material_compare
+{
+    __host__ __device__
+        bool operator()(const ShadeableIntersection left, const ShadeableIntersection right)
+    {
+        return left.materialId > right.materialId;
+    }
+};
+
 /**
  * Wrapper for the __global__ call that sets up the kernel calls and does a ton
  * of memory management
@@ -330,6 +382,11 @@ void pathtrace(uchar4* pbo, int frame, int iter)
 
     // 1D block for path tracing
     const int blockSize1d = 128;
+
+
+    // VALUES TO MAKE TOGGLES EASIER
+    bool bTerminatePaths = true;
+    bool bSortByMaterial = false;
 
     ///////////////////////////////////////////////////////////////////////////
 
@@ -389,6 +446,10 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         );
         checkCUDAError("trace one bounce");
         cudaDeviceSynchronize();
+        // Sort by material
+        if (bSortByMaterial) {
+            thrust::sort_by_key(thrust::device, dev_intersections, dev_intersections + num_paths, dev_paths, material_compare());
+        }
         depth++;
 
         // TODO:
@@ -413,11 +474,29 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             guiData->TracedDepth = depth;
         }
         cudaDeviceSynchronize();
+
+        if (bTerminatePaths)
+        {
+            dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
+            tempGather << <numBlocksPixels, blockSize1d >> > (num_paths, dev_tempImage, dev_paths);
+
+            // Stream Compact Terminated Paths
+            auto new_end = thrust::remove_if(thrust::device, dev_paths, dev_paths + num_paths, is_terminated());
+            num_paths = new_end - dev_paths;
+
+            cudaDeviceSynchronize();
+        }
+
     }
 
     // Assemble this iteration and apply it to the image
     dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
-    finalGather<<<numBlocksPixels, blockSize1d>>>(num_paths, dev_image, dev_paths);
+    if (bTerminatePaths) {
+        finalGatherFromTempImage << <numBlocksPixels, blockSize1d >> > (pixelcount, dev_image, dev_tempImage);
+    }
+    else {
+        finalGather << <numBlocksPixels, blockSize1d >> > (num_paths, dev_image, dev_paths);
+    }
 
     ///////////////////////////////////////////////////////////////////////////
 

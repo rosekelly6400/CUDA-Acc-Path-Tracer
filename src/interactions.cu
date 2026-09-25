@@ -90,13 +90,15 @@ __host__ __device__ void scatterRay(
     if (m.hasReflective > 0.0f)
     {
         pathSegment.ray.direction = glm::reflect(pathSegment.ray.direction, normal);
+        pathSegment.pdf = 1.0f;
+        pathSegment.color = m.color;
     }
+    // if diffuse
     else {
         pathSegment.ray.direction = glm::normalize(calculateRandomDirectionInHemisphere(normal, rng));
+        pathSegment.pdf = glm::dot(pathSegment.ray.direction, glm::normalize(normal)) / PI;
+        pathSegment.color = m.color/PI;
     }
 
     pathSegment.ray.origin = EPSILON * normal + intersect;
-    //get pdf for diffuse material
-    // below should be equal to cos(theta) over PI
-    pathSegment.pdf = glm::dot(pathSegment.ray.direction, glm::normalize(normal)) / PI;
 }
