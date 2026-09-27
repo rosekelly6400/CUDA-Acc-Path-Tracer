@@ -72,6 +72,7 @@ __host__ __device__ float sphereIntersectionTest(
     glm::vec3& normal,
     bool& outside);
 
+// This is glm::intersectRayTriangle converted to CUDA and output slightly changed to match other intersect functions
 __host__ __device__ float triangleIntersectionTest(
     Geom triangle,
     Ray r,

@@ -107,7 +107,10 @@ void Scene::loadFromJSON(const std::string& jsonName)
             tg3_parse_options_init(&opts);
             tg3_error_stack_init(&errors);
 
-            tg3_error_code err = tg3_parse_file(&model, &errors, "../models/Cube/Cube.gltf", 24, &opts);
+            //const char* gltfFilename = "../models/Suzanne/glTF/Suzanne.gltf";
+            const char* gltfFilename = "../models/Cube/Cube.gltf";
+            int filenameLength = std::string(gltfFilename).length();
+            tg3_error_code err = tg3_parse_file(&model, &errors, gltfFilename, 24, &opts);
             if (err != TG3_OK) {
                 for (uint32_t i = 0; i < errors.count; i++) {
                     fprintf(stderr, "[%d] %s\n", (int)errors.entries[i].severity,

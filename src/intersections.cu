@@ -104,14 +104,15 @@ __host__ __device__ float sphereIntersectionTest(
 
     intersectionPoint = multiplyMV(sphere.transform, glm::vec4(objspaceIntersection, 1.f));
     normal = glm::normalize(multiplyMV(sphere.invTranspose, glm::vec4(objspaceIntersection, 0.f)));
-    if (!outside)
+    /*if (!outside)
     {
         normal = -normal;
-    }
+    }*/
 
     return glm::length(r.origin - intersectionPoint);
 }
 
+// This is glm::intersectRayTriangle converted to CUDA and output slightly changed to match other intersect functions
 __host__ __device__ float triangleIntersectionTest(
     Geom triangle,
     Ray r,
@@ -119,9 +120,8 @@ __host__ __device__ float triangleIntersectionTest(
     glm::vec3& normal,
     bool& outside)
 {   
-    float radius = .5;
 
-    glm::vec3 objspaceIntersection;
+    glm::vec3 baryPosition;
 
     glm::vec3 ro = multiplyMV(triangle.inverseTransform, glm::vec4(r.origin, 1.0f));
     glm::vec3 rd = glm::normalize(multiplyMV(triangle.inverseTransform, glm::vec4(r.direction, 0.0f)));
@@ -136,24 +136,25 @@ __host__ __device__ float triangleIntersectionTest(
     glm::vec3 p = glm::cross(rt.direction, e2);
 
     float a = glm::dot(e1, p);
-    if(a < FLT_EPSILON) return false;
+    if(a < FLT_EPSILON) return -1;
 
     float f = 1.0f / a;
 
     glm::vec3 s = rt.origin - triangle.v0;
-    objspaceIntersection.x = f * glm::dot(s, p);
-    if(objspaceIntersection.x < 0.0f) return false;
-	if(objspaceIntersection.x > 1.0f) return false;
+    baryPosition.x = f * glm::dot(s, p);
+    if(baryPosition.x < 0.0f) return -1;
+	if(baryPosition.x > 1.0f) return -1;
 
     glm::vec3 q = glm::cross(s, e1);
-    objspaceIntersection.y = f * glm::dot(rt.direction, q);
-	if(objspaceIntersection.y < 0.0f) return false;
-	if(objspaceIntersection.y + objspaceIntersection.x > 1.0f) return false;
+    baryPosition.y = f * glm::dot(rt.direction, q);
+	if(baryPosition.y < 0.0f) return -1;
+	if(baryPosition.y + baryPosition.x > 1.0f) return -1;
 
-    objspaceIntersection.z = f * glm::dot(e2, q);
+    baryPosition.z = f * glm::dot(e2, q);
+    if (baryPosition.z < 0.0f) return -1;
     glm::vec3 objspaceNormal = glm::normalize(glm::cross(e1, e2));
 
-    intersectionPoint = multiplyMV(triangle.transform, glm::vec4(objspaceIntersection, 1.f));
+    intersectionPoint = r.origin + baryPosition.z * r.direction;
     normal = glm::normalize(multiplyMV(triangle.invTranspose, glm::vec4(objspaceNormal, 0.f)));
     if (glm::dot(normal, r.direction) < FLT_EPSILON) {
         outside = true;
@@ -168,5 +169,5 @@ __host__ __device__ float triangleIntersectionTest(
     }*/
     
 
-    return glm::length(r.origin - intersectionPoint);
+    return baryPosition.z;
 }
