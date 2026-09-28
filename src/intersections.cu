@@ -171,3 +171,16 @@ __host__ __device__ float triangleIntersectionTest(
 
     return baryPosition.z;
 }
+
+__host__ __device__ bool hitsBoundingBox(
+    Geom box,
+    Ray r)
+{
+    bool outside = true;
+
+    glm::vec3 tmp_intersect;
+    glm::vec3 tmp_normal;
+
+    float t = boxIntersectionTest(box, r, tmp_intersect, tmp_normal, outside);
+    return t > 0.0f;
+}

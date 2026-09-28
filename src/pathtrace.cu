@@ -86,6 +86,8 @@ static PathSegment* dev_paths = NULL;
 static ShadeableIntersection* dev_intersections = NULL;
 // TODO: static variables for device memory, any extra info you need, etc
 static glm::vec3* dev_tempImage = NULL;
+static BVHNode* dev_bvhNodes = NULL;
+static BVHPrimitive* dev_bvhPrimitives = NULL;
 // ...
 
 void InitDataContainer(GuiDataContainer* imGuiData)
@@ -117,6 +119,12 @@ void pathtraceInit(Scene* scene)
     // TODO: initialize any extra device memeory you need
     cudaMalloc(&dev_tempImage, pixelcount * sizeof(glm::vec3));
     cudaMemset(dev_tempImage, 0, pixelcount * sizeof(glm::vec3));
+
+    cudaMalloc(&dev_bvhPrimitives, scene->bvhPrimitives.size() * sizeof(BVHPrimitive));
+    cudaMemcpy(dev_bvhPrimitives, scene->bvhPrimitives.data(), scene->bvhPrimitives.size() * sizeof(BVHPrimitive), cudaMemcpyHostToDevice);
+
+    cudaMalloc(&dev_bvhNodes, scene->bvhNodes.size() * sizeof(BVHNode));
+    cudaMemcpy(dev_bvhNodes, scene->bvhNodes.data(), scene->bvhNodes.size() * sizeof(BVHNode), cudaMemcpyHostToDevice);
 
     checkCUDAError("pathtraceInit");
 }
@@ -182,7 +190,10 @@ __global__ void computeIntersections(
     PathSegment* pathSegments,
     Geom* geoms,
     int geoms_size,
-    ShadeableIntersection* intersections)
+    ShadeableIntersection* intersections,
+    BVHNode* bvhNodes,
+    BVHPrimitive* bvhPrims,
+    int prims_size)
 {
     int path_index = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -200,6 +211,9 @@ __global__ void computeIntersections(
         glm::vec3 tmp_intersect;
         glm::vec3 tmp_normal;
 
+        // check if ray hits any triangles
+        bool hitsBoundingVolume = hitsBoundingBox(bvhNodes[0].boundingBox, pathSegment.ray);
+        //hitsBoundingVolume = true;
         // naive parse through global geoms
 
         for (int i = 0; i < geoms_size; i++)
@@ -215,9 +229,13 @@ __global__ void computeIntersections(
                 t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
             }
             // TODO: add more intersection tests here... triangle? metaball? CSG?
-            else if (geom.type == TRIANGLE)
+            else if (geom.type == TRIANGLE )
             {
-                t = triangleIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+                t =  triangleIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+                //t = boxIntersectionTest(bvhNodes[0].boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+            }
+            else {
+                t = -1.0f;
             }
 
             // Compute the minimum t from the intersection tests to determine what
@@ -230,6 +248,23 @@ __global__ void computeIntersections(
                 normal = tmp_normal;
             }
         }
+
+        //for (int i = 0; i < prims_size; i++)
+        //{
+        //    BVHPrimitive& prim = bvhPrims[i];
+
+        //    t = boxIntersectionTest(prim.boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+
+        //    // Compute the minimum t from the intersection tests to determine what
+        //    // scene geometry object was hit first.
+        //    if (t > 0.0f && t_min > t)
+        //    {
+        //        t_min = t;
+        //        hit_geom_index = i;
+        //        intersect_point = tmp_intersect;
+        //        normal = tmp_normal;
+        //    }
+        //}
 
         if (hit_geom_index == -1)
         {
@@ -501,12 +536,13 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     // --- PathSegment Tracing Stage ---
     // Shoot ray into scene, bounce between objects, push shading chunks
 
-    while (depth < traceDepth)
+    while (depth < 1)
     {
         // clean shading chunks
         cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
 
         // tracing
+
         dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
         computeIntersections<<<numblocksPathSegmentTracing, blockSize1d>>> (
             depth,
@@ -514,7 +550,10 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_paths,
             dev_geoms,
             hst_scene->geoms.size(),
-            dev_intersections
+            dev_intersections,
+            dev_bvhNodes,
+            dev_bvhPrimitives,
+            hst_scene->bvhPrimitives.size()
         );
         checkCUDAError("trace one bounce");
         cudaDeviceSynchronize();
@@ -533,13 +572,13 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         // TODO: compare between directly shading the path segments and shading
         // path segments that have been reshuffled to be contiguous in memory.
 
-        shadeFakeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
+        /*shadeFakeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
             iter,
             num_paths,
             dev_intersections,
             dev_paths,
             dev_materials
-        );
+        );*/
         /*shadeNormalsMaterial << <numblocksPathSegmentTracing, blockSize1d >> > (
             iter,
             num_paths,
@@ -548,13 +587,13 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_materials
             );*/
 
-        /*shadeMaterialColor << <numblocksPathSegmentTracing, blockSize1d >> > (
+        shadeMaterialColor << <numblocksPathSegmentTracing, blockSize1d >> > (
             iter,
             num_paths,
             dev_intersections,
             dev_paths,
             dev_materials
-            );*/
+            );
 
         if (guiData != NULL)
         {

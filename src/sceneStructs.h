@@ -32,6 +32,7 @@ struct Geom
     glm::mat4 transform;
     glm::mat4 inverseTransform;
     glm::mat4 invTranspose;
+    // for triangles only
     glm::vec3 v0;
     glm::vec3 v1;
     glm::vec3 v2;
@@ -61,6 +62,28 @@ struct Camera
     glm::vec3 right;
     glm::vec2 fov;
     glm::vec2 pixelLength;
+};
+
+struct Bounds
+{
+    glm::vec3 minCorner;
+    glm::vec3 maxCorner;
+};
+
+struct BVHPrimitive
+{
+    Geom boundingBox;
+    Bounds boundingCorners;
+    int leafGeomIndex; // actual triangle for this primitive
+};
+
+struct BVHNode
+{
+    Bounds boundingCorners;
+    Geom boundingBox;
+    int bvhNodeChildIndex; 
+    int leafPrimIndex; // -1 if not leaf node 
+
 };
 
 struct RenderState

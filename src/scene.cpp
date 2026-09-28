@@ -59,6 +59,73 @@ Scene::Scene(string filename)
     }
 }
 
+glm::vec3 multiplyMV2(glm::mat4 m, glm::vec4 v)
+{
+    return glm::vec3(m * v);
+    //return glm::vec3(0.0f);
+}
+
+Bounds createBoundsFromVerts(glm::vec3 v0, glm::vec3 v1, glm::vec3 v2, Geom& triGeom) {
+    Bounds newBounds;
+    glm::vec3 minCorner;
+    glm::vec3 maxCorner;
+
+    v0 = multiplyMV2(triGeom.transform, glm::vec4(v0, 1.0f));
+    v1 = multiplyMV2(triGeom.transform, glm::vec4(v1, 1.0f));
+    v2 = multiplyMV2(triGeom.transform, glm::vec4(v2, 1.0f));
+
+    for (int i = 0; i < 3; i++)
+    {
+        minCorner[i] = std::min({ v0[i], v1[i], v2[i] });
+        maxCorner[i] = std::max({ v0[i], v1[i], v2[i] });
+    }
+
+    newBounds.minCorner = minCorner;
+    newBounds.maxCorner = maxCorner;
+    return newBounds;
+}
+
+Bounds createBoundsFromBounds(Bounds b0, Bounds b1) {
+    Bounds newBounds;
+    glm::vec3 minCorner;
+    glm::vec3 maxCorner;
+
+
+    for (int i = 0; i < 3; i++)
+    {
+        minCorner[i] = std::min({ b0.minCorner[i], b1.minCorner[i] });
+        maxCorner[i] = std::max({ b0.maxCorner[i], b1.maxCorner[i] });
+    }
+
+    newBounds.minCorner = minCorner;
+    newBounds.maxCorner = maxCorner;
+    return newBounds;
+}
+
+Geom createBoundingBoxGeomFromBounds(Bounds bounds)
+{
+    Geom newGeom;
+    newGeom.type = CUBE;
+    newGeom.materialid = 0;
+    const auto& trans = ((bounds.maxCorner + bounds.minCorner) / 2.0f);
+    const auto& rotat = glm::vec3(0.0f);
+    const auto& scale = glm::vec3(  glm::abs(bounds.maxCorner.x - bounds.minCorner.x),
+                                    glm::abs(bounds.maxCorner.y - bounds.minCorner.y),
+                                    glm::abs(bounds.maxCorner.z - bounds.minCorner.z));
+    newGeom.translation = glm::vec3(trans[0], trans[1], trans[2]);
+    newGeom.rotation = glm::vec3(rotat[0], rotat[1], rotat[2]);
+    newGeom.scale = glm::vec3(scale[0], scale[1], scale[2]);
+    newGeom.transform = utilityCore::buildTransformationMatrix(
+    newGeom.translation, newGeom.rotation, newGeom.scale);
+    newGeom.inverseTransform = glm::inverse(newGeom.transform);
+    newGeom.invTranspose = glm::inverseTranspose(newGeom.transform);
+    newGeom.v0 = glm::vec3(0.0f);
+    newGeom.v1 = glm::vec3(0.0f);
+    newGeom.v2 = glm::vec3(0.0f);
+
+    return newGeom;
+}
+
 void Scene::loadFromJSON(const std::string& jsonName)
 {
     std::ifstream f(jsonName);
@@ -87,7 +154,7 @@ void Scene::loadFromJSON(const std::string& jsonName)
         {
             const auto& col = p["RGB"];
             newMaterial.color = glm::vec3(col[0], col[1], col[2]);
-            newMaterial.hasReflective = 1.0f;
+            newMaterial.hasReflective = p["ROUGHNESS"];;
         }
         MatNameToID[name] = materials.size();
         materials.emplace_back(newMaterial);
@@ -107,8 +174,8 @@ void Scene::loadFromJSON(const std::string& jsonName)
             tg3_parse_options_init(&opts);
             tg3_error_stack_init(&errors);
 
-            //const char* gltfFilename = "../models/Suzanne/glTF/Suzanne.gltf";
-            const char* gltfFilename = "../models/Cube/Cube.gltf";
+            const char* gltfFilename = "../models/Suzanne/glTF/Suzanne.gltf";
+            //const char* gltfFilename = "../models/Cube/Cube.gltf";
             int filenameLength = std::string(gltfFilename).length();
             tg3_error_code err = tg3_parse_file(&model, &errors, gltfFilename, 24, &opts);
             if (err != TG3_OK) {
@@ -236,4 +303,29 @@ void Scene::loadFromJSON(const std::string& jsonName)
     int arraylen = camera.resolution.x * camera.resolution.y;
     state.image.resize(arraylen);
     std::fill(state.image.begin(), state.image.end(), glm::vec3());
+
+    // create BVH Tree
+
+    // create list of prims with bounding boxes
+    for (int i = 0; i < geoms.size(); i++) {
+        Geom g = geoms[i];
+        if (g.type == TRIANGLE) {
+            BVHPrimitive newPrim;
+            newPrim.boundingCorners = createBoundsFromVerts(g.v0, g.v1, g.v2, g);
+            newPrim.leafGeomIndex = i;
+            newPrim.boundingBox = createBoundingBoxGeomFromBounds(newPrim.boundingCorners);
+            bvhPrimitives.push_back(newPrim);
+        }
+    }
+
+    // create master bounding box
+    BVHNode bvhNode;
+    bvhNode.boundingCorners = bvhPrimitives[0].boundingCorners;
+
+    for (int i = 0; i < bvhPrimitives.size(); i++) {
+        BVHPrimitive p = bvhPrimitives[i];
+        bvhNode.boundingCorners = createBoundsFromBounds(bvhNode.boundingCorners, p.boundingCorners);
+    }
+    bvhNode.boundingBox = createBoundingBoxGeomFromBounds(bvhNode.boundingCorners);
+    bvhNodes.push_back(bvhNode);
 }

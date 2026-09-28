@@ -12,5 +12,7 @@ public:
 
     std::vector<Geom> geoms;
     std::vector<Material> materials;
+    std::vector<BVHNode> bvhNodes;
+    std::vector<BVHPrimitive> bvhPrimitives;
     RenderState state;
 };
