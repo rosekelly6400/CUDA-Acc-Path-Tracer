@@ -102,6 +102,36 @@ Bounds createBoundsFromBounds(Bounds b0, Bounds b1) {
     return newBounds;
 }
 
+Bounds addCentroidToBounds(Bounds b, glm::vec3 centroid) {
+    Bounds newBounds;
+    glm::vec3 minCorner;
+    glm::vec3 maxCorner;
+
+
+    for (int i = 0; i < 3; i++)
+    {
+        minCorner[i] = std::min({ b.minCorner[i], centroid[i] });
+        maxCorner[i] = std::max({ b.maxCorner[i], centroid[i] });
+    }
+
+    newBounds.minCorner = minCorner;
+    newBounds.maxCorner = maxCorner;
+    return newBounds;
+}
+
+int findMaxDim(Bounds b) {
+    glm::vec3 diagonal = b.maxCorner - b.minCorner;
+    if (diagonal.x > diagonal.y && diagonal.x > diagonal.z) {
+        return 0;
+    }
+    else if (diagonal.y > diagonal.z) {
+        return 1;
+    }
+    else {
+        return 2;
+    }
+}
+
 Geom createBoundingBoxGeomFromBounds(Bounds bounds)
 {
     Geom newGeom;
@@ -116,7 +146,7 @@ Geom createBoundingBoxGeomFromBounds(Bounds bounds)
     newGeom.rotation = glm::vec3(rotat[0], rotat[1], rotat[2]);
     newGeom.scale = glm::vec3(scale[0], scale[1], scale[2]);
     newGeom.transform = utilityCore::buildTransformationMatrix(
-    newGeom.translation, newGeom.rotation, newGeom.scale);
+        newGeom.translation, newGeom.rotation, newGeom.scale);
     newGeom.inverseTransform = glm::inverse(newGeom.transform);
     newGeom.invTranspose = glm::inverseTranspose(newGeom.transform);
     newGeom.v0 = glm::vec3(0.0f);
@@ -124,6 +154,84 @@ Geom createBoundingBoxGeomFromBounds(Bounds bounds)
     newGeom.v2 = glm::vec3(0.0f);
 
     return newGeom;
+}
+
+void printNode(BVHNode node) {
+    fprintf(stderr, "num prims: [%d] \n", node.numPrims);
+    fprintf(stderr, "first prim offset: [%d] \n", node.numPrims);
+    fprintf(stderr, "first child index: [%d] \n", node.bvhNodeChildIndex_First);
+    fprintf(stderr, "second child index: [%d] \n", node.bvhNodeChildIndex_Second);
+}
+
+// make empty bvh node and pass it in, this function populates it and creates its children then passes them into recursive calls
+void recursiveBVHBuild(BVHNode& bvhNode, BVHNode* bvhNodes, std::vector<BVHPrimitive>& bvhPrimitives, std::vector<BVHPrimitive>& orderedPrims, int start, int end, int& numNodes)
+{
+    // calculate bounds for all primitives from start to end
+    bvhNode.boundingCorners = bvhPrimitives[0].boundingCorners;
+    for (int i = start; i < end; i++) {
+        BVHPrimitive p = bvhPrimitives[i];
+        bvhNode.boundingCorners = createBoundsFromBounds(bvhNode.boundingCorners, p.boundingCorners);
+    }
+    bvhNode.boundingBox = createBoundingBoxGeomFromBounds(bvhNode.boundingCorners);
+
+    int numPrimitives = end - start;
+    // if only one primitive, create leaf
+    if (numPrimitives == 1) {
+        bvhNode.firstPrimOffset = orderedPrims.size();
+        for (int i = start; i < end; ++i) {
+            orderedPrims.push_back(bvhPrimitives[i]);
+        }
+        bvhNode.numPrims = numPrimitives;
+        return;
+    }
+    else {
+        // calculate centroid bounds for primitives from start to end
+        Bounds centroidBounds;
+        centroidBounds.minCorner = (bvhPrimitives[start].boundingCorners.minCorner + bvhPrimitives[start].boundingCorners.maxCorner) / 2.0f;
+        centroidBounds.maxCorner = (bvhPrimitives[start].boundingCorners.minCorner + bvhPrimitives[start].boundingCorners.maxCorner) / 2.0f;
+        for (int i = start; i < end; i++) {
+            BVHPrimitive p = bvhPrimitives[i];
+            glm::vec3 p_centroid = (p.boundingCorners.minCorner + p.boundingCorners.maxCorner) / 2.0f;
+            centroidBounds = addCentroidToBounds(centroidBounds, p_centroid);
+        }
+        int maxDim = findMaxDim(centroidBounds);
+
+        int mid = (start + end) / 2;
+        if (centroidBounds.maxCorner[maxDim] == centroidBounds.minCorner[maxDim]) {
+            bvhNode.firstPrimOffset = orderedPrims.size();
+            for (int i = start; i < end; ++i) {
+                orderedPrims.push_back(bvhPrimitives[i]);
+            }
+            bvhNode.numPrims = numPrimitives;
+            return;
+        }
+        else {
+            // partition through node's centroids
+            float pmid = (centroidBounds.maxCorner[maxDim] + centroidBounds.minCorner[maxDim]) / 2.0f;
+            auto sortedMid = std::partition(bvhPrimitives.begin() + start, bvhPrimitives.begin() + (end - 1) + 1, [maxDim, pmid](const BVHPrimitive prim) {
+                float primCentroidDim = ((prim.boundingCorners.maxCorner + prim.boundingCorners.minCorner) / 2.0f)[maxDim];
+                return primCentroidDim < pmid;
+                });
+            mid = sortedMid - bvhPrimitives.begin();
+
+            //recursively create subnodes
+            bvhNode.dim = maxDim;
+            BVHNode child1;
+            BVHNode child2;
+            bvhNodes[numNodes] = child1;
+            bvhNode.bvhNodeChildIndex_First = numNodes;
+            numNodes++;
+            bvhNodes[numNodes] = child2;
+            bvhNode.bvhNodeChildIndex_Second = numNodes;
+            numNodes++;
+            recursiveBVHBuild(bvhNodes[bvhNode.bvhNodeChildIndex_First], bvhNodes, bvhPrimitives, orderedPrims, start, mid, numNodes);
+            recursiveBVHBuild(bvhNodes[bvhNode.bvhNodeChildIndex_Second], bvhNodes, bvhPrimitives, orderedPrims, mid, end, numNodes);
+
+            bvhNode.boundingCorners = createBoundsFromBounds(bvhNodes[bvhNode.bvhNodeChildIndex_First].boundingCorners, bvhNodes[bvhNode.bvhNodeChildIndex_Second].boundingCorners);
+            bvhNode.boundingBox = createBoundingBoxGeomFromBounds(bvhNode.boundingCorners);
+        }
+    }
+    return;
 }
 
 void Scene::loadFromJSON(const std::string& jsonName)
@@ -174,8 +282,8 @@ void Scene::loadFromJSON(const std::string& jsonName)
             tg3_parse_options_init(&opts);
             tg3_error_stack_init(&errors);
 
-            const char* gltfFilename = "../models/Suzanne/glTF/Suzanne.gltf";
-            //const char* gltfFilename = "../models/Cube/Cube.gltf";
+            //const char* gltfFilename = "../models/Suzanne/glTF/Suzanne.gltf";
+            const char* gltfFilename = "../models/Cube/Cube.gltf";
             int filenameLength = std::string(gltfFilename).length();
             tg3_error_code err = tg3_parse_file(&model, &errors, gltfFilename, 24, &opts);
             if (err != TG3_OK) {
@@ -319,13 +427,35 @@ void Scene::loadFromJSON(const std::string& jsonName)
     }
 
     // create master bounding box
-    BVHNode bvhNode;
-    bvhNode.boundingCorners = bvhPrimitives[0].boundingCorners;
+    /*BVHNode bvhNode;
+    bvhNode.boundingCorners = bvhPrimitives[0].boundingCorners; 
 
     for (int i = 0; i < bvhPrimitives.size(); i++) {
         BVHPrimitive p = bvhPrimitives[i];
         bvhNode.boundingCorners = createBoundsFromBounds(bvhNode.boundingCorners, p.boundingCorners);
     }
     bvhNode.boundingBox = createBoundingBoxGeomFromBounds(bvhNode.boundingCorners);
-    bvhNodes.push_back(bvhNode);
+    bvhNodes.push_back(bvhNode);*/
+
+    /*BVHNode node;
+    recursiveBVHBuild(node, bvhNodes, bvhPrimitives, orderedPrims, 0, 1);*/
+    //bvhNodes.push_back(node);
+
+    BVHNode* bvhNodeList = new BVHNode[2 * bvhPrimitives.size()];
+    BVHNode node;
+    bvhNodeList[0] = node;
+    int numNodes = 1;
+    recursiveBVHBuild(bvhNodeList[0], bvhNodeList, bvhPrimitives, orderedPrims, 0, bvhPrimitives.size(), numNodes);
+    fprintf(stderr, "\n num prims: [%d] \n", bvhPrimitives.size());
+    fprintf(stderr, "\n num nodes: [%d] \n", numNodes);
+    // put bvhNodeList into vector and then free it
+    for (int i = 0; i < numNodes; i++) {
+        bvhNodes.push_back(bvhNodeList[i]);
+    }
+
+    for (int i = 0; i < bvhNodes.size(); i++) {
+        fprintf(stderr, "\n");
+        printNode(bvhNodes[i]);
+    }
+    delete[] bvhNodeList;
 }

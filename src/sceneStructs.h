@@ -81,9 +81,11 @@ struct BVHNode
 {
     Bounds boundingCorners;
     Geom boundingBox;
-    int bvhNodeChildIndex; 
-    int leafPrimIndex; // -1 if not leaf node 
-
+    int bvhNodeChildIndex_First = -1; 
+    int bvhNodeChildIndex_Second = -1;
+    int numPrims = -1;
+    int firstPrimOffset = -1;
+    int dim = -1; //axis it was split on
 };
 
 struct RenderState

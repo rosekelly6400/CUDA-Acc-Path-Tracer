@@ -14,5 +14,6 @@ public:
     std::vector<Material> materials;
     std::vector<BVHNode> bvhNodes;
     std::vector<BVHPrimitive> bvhPrimitives;
+    std::vector<BVHPrimitive> orderedPrims;
     RenderState state;
 };

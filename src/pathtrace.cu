@@ -120,8 +120,8 @@ void pathtraceInit(Scene* scene)
     cudaMalloc(&dev_tempImage, pixelcount * sizeof(glm::vec3));
     cudaMemset(dev_tempImage, 0, pixelcount * sizeof(glm::vec3));
 
-    cudaMalloc(&dev_bvhPrimitives, scene->bvhPrimitives.size() * sizeof(BVHPrimitive));
-    cudaMemcpy(dev_bvhPrimitives, scene->bvhPrimitives.data(), scene->bvhPrimitives.size() * sizeof(BVHPrimitive), cudaMemcpyHostToDevice);
+    cudaMalloc(&dev_bvhPrimitives, scene->orderedPrims.size() * sizeof(BVHPrimitive));
+    cudaMemcpy(dev_bvhPrimitives, scene->orderedPrims.data(), scene->orderedPrims.size() * sizeof(BVHPrimitive), cudaMemcpyHostToDevice);
 
     cudaMalloc(&dev_bvhNodes, scene->bvhNodes.size() * sizeof(BVHNode));
     cudaMemcpy(dev_bvhNodes, scene->bvhNodes.data(), scene->bvhNodes.size() * sizeof(BVHNode), cudaMemcpyHostToDevice);
@@ -206,13 +206,16 @@ __global__ void computeIntersections(
         glm::vec3 normal;
         float t_min = FLT_MAX;
         int hit_geom_index = -1;
+        int hitMaterialId = -1;
         bool outside = true;
 
         glm::vec3 tmp_intersect;
         glm::vec3 tmp_normal;
 
         // check if ray hits any triangles
-        bool hitsBoundingVolume = hitsBoundingBox(bvhNodes[0].boundingBox, pathSegment.ray);
+        int boundingBoxT = boxIntersectionTest(bvhNodes[0].boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+        bool hitsBoundingVolume = boundingBoxT > 0.0f;
+        //bool hitsBoundingVolume = hitsBoundingBox(bvhNodes[0].boundingBox, pathSegment.ray);
         //hitsBoundingVolume = true;
         // naive parse through global geoms
 
@@ -229,11 +232,11 @@ __global__ void computeIntersections(
                 t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
             }
             // TODO: add more intersection tests here... triangle? metaball? CSG?
-            else if (geom.type == TRIANGLE )
-            {
-                t =  triangleIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
-                //t = boxIntersectionTest(bvhNodes[0].boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside);
-            }
+            //else if (geom.type == TRIANGLE && hitsBoundingVolume)
+            //{
+            //    t =  triangleIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+            //    //t = boxIntersectionTest(bvhNodes[0].boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+            //}
             else {
                 t = -1.0f;
             }
@@ -244,16 +247,73 @@ __global__ void computeIntersections(
             {
                 t_min = t;
                 hit_geom_index = i;
+                hitMaterialId = geoms[hit_geom_index].materialid;
                 intersect_point = tmp_intersect;
                 normal = tmp_normal;
+            }
+        }
+        // Intersection test for BVH tree
+        bool hit = false;
+        // maybe don't need below
+        glm::vec3 invDir = glm::vec3(1.0f / pathSegment.ray.direction.x, 1.0f / pathSegment.ray.direction.y, 1.0f / pathSegment.ray.direction.z);
+        bool dirIsNeg[3] = { invDir.x < 0.0f, invDir.y < 0.0f, invDir.z < 0.0f };
+
+        int nodesToVist[64];
+        int toVistOffset = 0;
+        int currentNodeIndex = 0;
+
+        while (true) {
+            BVHNode curNode = bvhNodes[currentNodeIndex];
+            // if ray intersects with current node
+            if (boxIntersectionTest(curNode.boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside) > 0.0f) {
+                // if leaf node
+                if (curNode.numPrims > 0) {
+                    for (int i = 0; i < curNode.numPrims; ++i) {
+                        Geom triangle = geoms[bvhPrims[curNode.firstPrimOffset + i].leafGeomIndex];
+                        t = triangleIntersectionTest(triangle, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+                        if (t > 0.0f) {
+                            hit = true;
+                            if (t > 0.0f && t_min > t)
+                            {
+                                t_min = t;
+                                hit_geom_index = i;
+                                hitMaterialId = triangle.materialid;
+                                intersect_point = tmp_intersect;
+                                normal = tmp_normal;
+                            }
+                        }
+                    }
+                    if (toVistOffset == 0) {
+                        break;
+                    }
+                    currentNodeIndex = nodesToVist[toVistOffset];
+                    toVistOffset--;
+                }
+                else {
+                    toVistOffset++;
+                    nodesToVist[toVistOffset] = curNode.bvhNodeChildIndex_First;
+                    currentNodeIndex = curNode.bvhNodeChildIndex_Second;
+                    /*if (dirIsNeg[curNode.dim]) {
+                    }
+                    else {
+                    }*/
+                }
+            }
+            // otherwise visit other nodes in nodesToVist or break
+            else {
+                if (toVistOffset == 0) {
+                    break;
+                }
+                currentNodeIndex = nodesToVist[toVistOffset];
+                toVistOffset--;
             }
         }
 
         //for (int i = 0; i < prims_size; i++)
         //{
         //    BVHPrimitive& prim = bvhPrims[i];
-
-        //    t = boxIntersectionTest(prim.boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+        //    Geom triangle = geoms[bvhPrims[i].leafGeomIndex];
+        //    t = boxIntersectionTest(triangle, pathSegment.ray, tmp_intersect, tmp_normal, outside);
 
         //    // Compute the minimum t from the intersection tests to determine what
         //    // scene geometry object was hit first.
@@ -261,6 +321,7 @@ __global__ void computeIntersections(
         //    {
         //        t_min = t;
         //        hit_geom_index = i;
+        //        hitMaterialId = triangle.materialid;
         //        intersect_point = tmp_intersect;
         //        normal = tmp_normal;
         //    }
@@ -274,7 +335,7 @@ __global__ void computeIntersections(
         {
             // The ray hits something
             intersections[path_index].t = t_min;
-            intersections[path_index].materialId = geoms[hit_geom_index].materialid;
+            intersections[path_index].materialId = hitMaterialId;
             intersections[path_index].surfaceNormal = normal;
             intersections[path_index].intersectionPoint = intersect_point;
         }
@@ -553,7 +614,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_intersections,
             dev_bvhNodes,
             dev_bvhPrimitives,
-            hst_scene->bvhPrimitives.size()
+            hst_scene->orderedPrims.size()
         );
         checkCUDAError("trace one bounce");
         cudaDeviceSynchronize();
