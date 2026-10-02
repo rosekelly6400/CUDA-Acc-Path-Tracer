@@ -112,6 +112,22 @@ __host__ __device__ float sphereIntersectionTest(
     return glm::length(r.origin - intersectionPoint);
 }
 
+__host__ __device__ float triangleArea(glm::vec3 v0, glm::vec3 v1, glm::vec3 v2) {
+    glm::vec3 e1 = v1 - v0;
+    glm::vec3 e2 = v2 - v0;
+    return 0.5f * glm::length(glm::cross(e1, e2));
+}
+
+__host__ __device__ glm::vec3 barycentricInterpolateNormal(const Geom& triangle, glm::vec3 intersectionPoint) {
+    float totalArea = triangleArea(triangle.v0, triangle.v1, triangle.v2);
+
+    float t0Area = triangleArea(intersectionPoint, triangle.v1, triangle.v2);
+    float t1Area = triangleArea(triangle.v0, intersectionPoint, triangle.v2);
+    float t2Area = triangleArea(triangle.v0, triangle.v1, intersectionPoint);
+
+    return triangle.norm0 * (t0Area / totalArea) + triangle.norm1 * (t1Area / totalArea) + triangle.norm2 * (t2Area / totalArea);
+}
+
 // This is glm::intersectRayTriangle converted to CUDA and output slightly changed to match other intersect functions
 __host__ __device__ float triangleIntersectionTest(
     Geom triangle,
@@ -152,9 +168,13 @@ __host__ __device__ float triangleIntersectionTest(
 
     baryPosition.z = f * glm::dot(e2, q);
     if (baryPosition.z < 0.0f) return -1;
-    glm::vec3 objspaceNormal = glm::normalize(glm::cross(e1, e2));
+
+    // normal from cross product
+    //glm::vec3 objspaceNormal = glm::normalize(glm::cross(e1, e2));
 
     intersectionPoint = r.origin + baryPosition.z * r.direction;
+    // normal from interpolating vertex normals from gltf
+    glm::vec3 objspaceNormal = barycentricInterpolateNormal(triangle, intersectionPoint);
     normal = glm::normalize(multiplyMV(triangle.invTranspose, glm::vec4(objspaceNormal, 0.f)));
     if (glm::dot(normal, r.direction) < FLT_EPSILON) {
         outside = true;

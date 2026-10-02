@@ -36,6 +36,9 @@ struct Geom
     glm::vec3 v0;
     glm::vec3 v1;
     glm::vec3 v2;
+    glm::vec3 norm0 = glm::vec3(0.0f);
+    glm::vec3 norm1 = glm::vec3(0.0f);
+    glm::vec3 norm2 = glm::vec3(0.0f);
 };
 
 struct Material

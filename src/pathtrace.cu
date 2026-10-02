@@ -175,13 +175,57 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         int sampleY = iter % 4;
         thrust::default_random_engine rng = makeSeededRandomEngine(iter, x*iter, y*iter );
         // should be to 0.25 but get less aliasing with range 0 - 1
-        thrust::uniform_real_distribution<float> u01(0, 0.25);
+        thrust::uniform_real_distribution<float> u01(-1.0f * 0.25, .25);
         float xRandom = u01(rng);
         float yRandom = u01(rng);
         segment.ray.direction = glm::normalize(cam.view
             - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f - ((float)sampleX * cam.pixelLength.x * 0.25f + xRandom))
             - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f - ((float)sampleY * cam.pixelLength.y * 0.25f + yRandom))
         );
+
+        segment.pixelIndex = index;
+        segment.remainingBounces = traceDepth;
+    }
+}
+
+__global__ void generateDOFJitteredRayFromCamera(Camera cam, int iter, int traceDepth, PathSegment* pathSegments, ShadeableIntersection* intersections, float depthOfField)
+{
+    int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+    int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+
+    if (x < cam.resolution.x && y < cam.resolution.y) {
+        int index = x + (y * cam.resolution.x);
+        PathSegment& segment = pathSegments[index];
+
+        ShadeableIntersection curIntersection = intersections[index];
+        float jitterRange = 0.0f;
+
+        if (curIntersection.t > 0.0f) {
+            float distanceFromDOF = std::abs (depthOfField - glm::length(cam.position - curIntersection.intersectionPoint));
+            /*jitterRange = distanceFromDOF/2.8f;
+            jitterRange = jitterRange * jitterRange;*/
+
+            jitterRange = distanceFromDOF / 2.2f;
+        }
+
+        segment.ray.origin = cam.position;
+        segment.color = glm::vec3(0.0f, 0.0f, 0.0f);
+        segment.throughput = glm::vec3(1.0f, 1.0f, 1.0f);
+        segment.pdf = 1.0f;
+
+        // TODO: implement antialiasing by jittering the ray
+        int sampleX = (iter % 16) / 4;
+        int sampleY = iter % 4;
+        thrust::default_random_engine rng = makeSeededRandomEngine(iter, x * iter, y * iter);
+        // should be to 0.25 but get less aliasing with range 0 - 1
+        thrust::uniform_real_distribution<float> u01(-1.0f * jitterRange, jitterRange);
+        float xRandom = u01(rng);
+        float yRandom = u01(rng);
+        segment.ray.direction = glm::normalize(cam.view
+            - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f - ((float)sampleX * cam.pixelLength.x * 0.25f + xRandom))
+            - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f - ((float)sampleY * cam.pixelLength.y * 0.25f + yRandom))
+        );
+
 
         segment.pixelIndex = index;
         segment.remainingBounces = traceDepth;
@@ -676,9 +720,31 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     generateRayFromCamera<<<blocksPerGrid2d, blockSize2d>>>(cam, iter, traceDepth, dev_paths);
     checkCUDAError("generate camera ray");
 
+    bool depthOfFieldEffect = true;
+    float depthOfField = 9.0f;
+
     int depth = 0;
     PathSegment* dev_path_end = dev_paths + pixelcount;
     int num_paths = dev_path_end - dev_paths;
+    dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
+
+    if (depthOfFieldEffect) {
+        // compute intersections to get z
+        computeIntersections << <numblocksPathSegmentTracing, blockSize1d >> > (
+            0,
+            num_paths,
+            dev_paths,
+            dev_geoms,
+            hst_scene->geoms.size(),
+            dev_intersections,
+            dev_bvhNodes,
+            dev_bvhPrimitives,
+            hst_scene->orderedPrims.size()
+            );
+
+        // use z to calculate distance from dof and how blurry it should be
+        generateDOFJitteredRayFromCamera << <blocksPerGrid2d, blockSize2d >> > (cam, iter, traceDepth, dev_paths, dev_intersections, depthOfField);
+    }
 
     // --- PathSegment Tracing Stage ---
     // Shoot ray into scene, bounce between objects, push shading chunks
@@ -690,36 +756,19 @@ void pathtrace(uchar4* pbo, int frame, int iter)
 
         // tracing
 
-        dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
+        numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
 
-        if(hst_scene->orderedPrims.size() > 0)
-        {
-            computeIntersections << <numblocksPathSegmentTracing, blockSize1d >> > (
-                depth,
-                num_paths,
-                dev_paths,
-                dev_geoms,
-                hst_scene->geoms.size(),
-                dev_intersections,
-                dev_bvhNodes,
-                dev_bvhPrimitives,
-                hst_scene->orderedPrims.size()
-                );
-        }
-        else {
-
-            computeIntersections << <numblocksPathSegmentTracing, blockSize1d >> > (
-                depth,
-                 num_paths,
-                dev_paths,
-                dev_geoms,
-                hst_scene->geoms.size(),
-                dev_intersections,
-                nullptr,
-                nullptr,
-                0
-                );
-        }
+        computeIntersections << <numblocksPathSegmentTracing, blockSize1d >> > (
+            depth,
+            num_paths,
+            dev_paths,
+            dev_geoms,
+            hst_scene->geoms.size(),
+            dev_intersections,
+            dev_bvhNodes,
+            dev_bvhPrimitives,
+            hst_scene->orderedPrims.size()
+            );
         checkCUDAError("trace one bounce");
         cudaDeviceSynchronize();
         // Sort by material

@@ -16,5 +16,6 @@ public:
     std::vector<BVHNode> bvhNodes;
     std::vector<BVHPrimitive> bvhPrimitives;
     std::vector<BVHPrimitive> orderedPrims;
+    std::vector<glm::vec3> textureImage;
     RenderState state;
 };

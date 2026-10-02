@@ -302,6 +302,17 @@ void Scene::loadFromJSON(const std::string& jsonName)
                             errors.entries[i].message ? errors.entries[i].message : "(null)");
                 }
             }
+
+            // load first image in as texture
+            /*tg3_image firstImage = model.images[0];
+            const uint8_t* imageBuffer = (firstImage.image.data);
+            for (int i = 0; i < model.images[0].height * model.images[0].width; i++) {
+                uint8_t r = imageBuffer[i];
+                uint8_t g = imageBuffer[i + 1];
+                uint8_t b = imageBuffer[i + 2];
+                textureImage.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
+            }*/
+
             fprintf(stderr, "mesh count: [%d] \n", model.meshes_count);
             for(int mesh_i = 0; mesh_i < model.meshes_count; ++mesh_i)
             {
@@ -312,10 +323,13 @@ void Scene::loadFromJSON(const std::string& jsonName)
                     const tg3_primitive primitive = mesh.primitives[prim_i];
                     fprintf(stderr, "prim mode: [%d] \n", primitive.mode);
                     fprintf(stderr, "prim attr count: [%d] \n", primitive.attributes_count);
+
+                    int firstGeomIndex = geoms.size();
                     if(primitive.mode == TG3_MODE_TRIANGLES)
                     {
                         for (int attr_i = 0; attr_i < primitive.attributes_count; ++attr_i) {
                             //fprintf(stderr, "prim attr key: %s \n", primitive.attributes[attr_i].key.data);
+                            
                             std::string posStr = "POSITION";
                             if (primitive.attributes[attr_i].key.data == posStr)
                             {
@@ -325,10 +339,22 @@ void Scene::loadFromJSON(const std::string& jsonName)
                                 const tg3_buffer& buffer = model.buffers[bufferView.buffer];
                                 const float* positions = reinterpret_cast<const float*>(&buffer.data.data[bufferView.byte_offset + accessor.byte_offset]);
                                 fprintf(stderr, "POS accessor count : [%d] \n", accessor.count);
-                                int num_tris = accessor.count / 3;
-                                // each vertex
-                                for (int tri_i = 0; tri_i < num_tris; ++tri_i) {
-                                    int pos_tri_start_idx = tri_i * 9;
+                                size_t byteStride = bufferView.byte_stride;
+                                fprintf(stderr, "Byte Stride : [%d] \n", byteStride);
+
+                                /*int vertCount = 0;
+                                int triCount = 0;
+                                for (int i = 0; i < accessor.count; ++i) {
+                                    glm::vec3 vertex = glm::vec3(positions[i * 3 + 0], positions[i * 3 + 1], positions[i * 3 + 2]);
+                                }*/
+
+                                if (byteStride == 0) {
+                                    byteStride = 12;
+                                }
+                                fprintf(stderr, "Byte Stride : [%d] \n", byteStride);
+
+                                for (size_t vert_i = 0; vert_i < accessor.count; ++vert_i) {
+                                    const float* curPosStart = reinterpret_cast<const float*>(&buffer.data.data[bufferView.byte_offset + accessor.byte_offset + (vert_i * byteStride)]);
 
                                     Geom newGeom;
                                     newGeom.type = TRIANGLE;
@@ -343,17 +369,58 @@ void Scene::loadFromJSON(const std::string& jsonName)
                                         newGeom.translation, newGeom.rotation, newGeom.scale);
                                     newGeom.inverseTransform = glm::inverse(newGeom.transform);
                                     newGeom.invTranspose = glm::inverseTranspose(newGeom.transform);
-                                    newGeom.v0 = glm::vec3(positions[pos_tri_start_idx + 0 * 3 + 0], positions[pos_tri_start_idx + 0 * 3 + 1], positions[pos_tri_start_idx + 0 * 3 + 2]);
-                                    newGeom.v1 = glm::vec3(positions[pos_tri_start_idx + 1 * 3 + 0], positions[pos_tri_start_idx + 1 * 3 + 1], positions[pos_tri_start_idx + 1 * 3 + 2]);
-                                    newGeom.v2 = glm::vec3(positions[pos_tri_start_idx + 2 * 3 + 0], positions[pos_tri_start_idx + 2 * 3 + 1], positions[pos_tri_start_idx + 2 * 3 + 2]);
+
+                                    newGeom.v0 = glm::vec3(curPosStart[0], curPosStart[1], curPosStart[2]);
+                                    ++vert_i;
+                                    curPosStart = reinterpret_cast<const float*>(&buffer.data.data[bufferView.byte_offset + accessor.byte_offset + (vert_i * byteStride)]);
+                                    newGeom.v1 = glm::vec3(curPosStart[0], curPosStart[1], curPosStart[2]);
+                                    ++vert_i;
+                                    curPosStart = reinterpret_cast<const float*>(&buffer.data.data[bufferView.byte_offset + accessor.byte_offset + (vert_i * byteStride)]);
+                                    newGeom.v2 = glm::vec3(curPosStart[0], curPosStart[1], curPosStart[2]);
 
                                     geoms.push_back(newGeom);
                                 }
                             }
                         }
 
+                        for (int attr_i = 0; attr_i < primitive.attributes_count; ++attr_i) {
+
+                            std::string normStr = "NORMAL";
+                            if (primitive.attributes[attr_i].key.data == normStr)
+                            {
+                                fprintf(stderr, "NORM Attr value: [%d] \n", primitive.attributes[attr_i].value);
+                                const tg3_accessor& accessor = model.accessors[primitive.attributes[attr_i].value];
+                                const tg3_buffer_view& bufferView = model.buffer_views[accessor.buffer_view];
+                                const tg3_buffer& buffer = model.buffers[bufferView.buffer];
+                                const float* positions = reinterpret_cast<const float*>(&buffer.data.data[bufferView.byte_offset + accessor.byte_offset]);
+                                fprintf(stderr, "NORM accessor count : [%d] \n", accessor.count);
+                                size_t byteStride = bufferView.byte_stride;
+                                fprintf(stderr, "Byte Stride : [%d] \n", byteStride);
+
+
+                                if (byteStride == 0) {
+                                    byteStride = 12;
+                                }
+                                fprintf(stderr, "Byte Stride : [%d] \n", byteStride);
+
+                                int currGeomIndex = firstGeomIndex;
+                                for (size_t vert_i = 0; vert_i < accessor.count; ++vert_i) {
+                                    const float* curPosStart = reinterpret_cast<const float*>(&buffer.data.data[bufferView.byte_offset + accessor.byte_offset + (vert_i * byteStride)]);
+
+                                    // add vertex normals to existing geom
+                                    geoms[currGeomIndex].norm0 = glm::vec3(curPosStart[0], curPosStart[1], curPosStart[2]);
+                                    ++vert_i;
+                                    curPosStart = reinterpret_cast<const float*>(&buffer.data.data[bufferView.byte_offset + accessor.byte_offset + (vert_i * byteStride)]);
+                                    geoms[currGeomIndex].norm1 = glm::vec3(curPosStart[0], curPosStart[1], curPosStart[2]);
+                                    ++vert_i;
+                                    curPosStart = reinterpret_cast<const float*>(&buffer.data.data[bufferView.byte_offset + accessor.byte_offset + (vert_i * byteStride)]);
+                                    geoms[currGeomIndex].norm2 = glm::vec3(curPosStart[0], curPosStart[1], curPosStart[2]);
+
+                                    currGeomIndex++;
+                                }
+                            }
+                        }
                         d_attrs(primitive.attributes, primitive.attributes_count);
-                        
                     }
                 }
             }
@@ -435,7 +502,7 @@ void Scene::loadFromJSON(const std::string& jsonName)
             newPrim.boundingCorners = createBoundsFromVerts(g.v0, g.v1, g.v2, g);
             newPrim.leafGeomIndex = i;
             newPrim.boundingBox = createBoundingBoxGeomFromBounds(newPrim.boundingCorners);
-            printPrim(newPrim, geoms);
+            //printPrim(newPrim, geoms);
             bvhPrimitives.push_back(newPrim);
         }
     }
@@ -468,8 +535,9 @@ void Scene::loadFromJSON(const std::string& jsonName)
             bvhNodes.push_back(bvhNodeList[i]);
         }
 
+        //PRINT OUT 
 
-        fprintf(stderr, "\nBVH Nodes\n");
+        /*fprintf(stderr, "\nBVH Nodes\n");
         for (int i = 0; i < bvhNodes.size(); i++) {
             fprintf(stderr, "\n");
             printNode(bvhNodes[i]);
@@ -481,7 +549,7 @@ void Scene::loadFromJSON(const std::string& jsonName)
         fprintf(stderr, "\nGeoms\n");
         for (int i = 0; i < geoms.size(); i++) {
             fprintf(stderr, "index: [%d]  type: %d \n", i, geoms[i].type);
-        }
+        }*/
 
         delete[] bvhNodeList;
     }
