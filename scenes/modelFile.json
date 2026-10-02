@@ -93,7 +93,7 @@
         },
         {
             "TYPE":"modelFile",
-            "FILEPATH": "DiffuseTransmissionTeacup.glb",
+            "FILEPATH": "../models/Suzanne/glTF/Suzanne.gltf",
             "MATERIAL":"diffuse_white",
             "TRANS":[2.0,3.0,-3.0],
             "ROTAT":[-90.0,0.0,0.0],
