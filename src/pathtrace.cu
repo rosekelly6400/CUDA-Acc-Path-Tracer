@@ -246,8 +246,8 @@ __global__ void computeIntersections(
             // TODO: add more intersection tests here... triangle? metaball? CSG?
             //else if (geom.type == TRIANGLE && hitsBoundingVolume)
             //{
-            //    t =  triangleIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
-            //    //t = boxIntersectionTest(bvhNodes[0].boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+            //    //t =  triangleIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+            //    t = boxIntersectionTest(bvhNodes[0].boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside);
             //}
             else {
                 t = -1.0f;
@@ -265,84 +265,82 @@ __global__ void computeIntersections(
             }
         }
 
+        // just show triangles from bvhPrims
+        for (int i = 0; i < prims_size; i++)
+        {
+            BVHPrimitive& prim = bvhPrims[i];
+            Geom triangle = geoms[bvhPrims[i].leafGeomIndex];
+            t = triangleIntersectionTest(triangle, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+            // Compute the minimum t from the intersection tests to determine what
+            // scene geometry object was hit first.
+            if (t > 0.0f && t_min > t)
+            {
+                t_min = t;
+                hit_geom_index = i;
+                hitMaterialId = triangle.materialid;
+                intersect_point = tmp_intersect;
+                normal = tmp_normal;
+            }
+        }
+
 
         // Intersection test for BVH tree
-        if(prims_size > 0)
-        {
-            bool hit = false;
-            // maybe don't need below
-            glm::vec3 invDir = glm::vec3(1.0f / pathSegment.ray.direction.x, 1.0f / pathSegment.ray.direction.y, 1.0f / pathSegment.ray.direction.z);
-            bool dirIsNeg[3] = { invDir.x < 0.0f, invDir.y < 0.0f, invDir.z < 0.0f };
-
-            int nodesToVist[64];
-            int toVistOffset = 0;
-            int currentNodeIndex = 0;
-
-            while (true) {
-                BVHNode curNode = bvhNodes[currentNodeIndex];
-                // if ray intersects with current node
-                if (boxIntersectionTest(curNode.boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside) > 0.0f) {
-                    // if leaf node
-                    if (curNode.numPrims > 0) {
-                        for (int i = 0; i < curNode.numPrims; ++i) {
-                            Geom triangle = geoms[bvhPrims[curNode.firstPrimOffset + i].leafGeomIndex];
-                            t = triangleIntersectionTest(triangle, pathSegment.ray, tmp_intersect, tmp_normal, outside);
-                            if (t > 0.0f) {
-                                hit = true;
-                                if (t > 0.0f && t_min > t)
-                                {
-                                    t_min = t;
-                                    hit_geom_index = i;
-                                    hitMaterialId = triangle.materialid;
-                                    intersect_point = tmp_intersect;
-                                    normal = tmp_normal;
-                                }
-                            }
-                        }
-                        if (toVistOffset == 0) {
-                            break;
-                        }
-                        currentNodeIndex = nodesToVist[toVistOffset];
-                        toVistOffset--;
-                    }
-                    else {
-                        toVistOffset++;
-                        nodesToVist[toVistOffset] = curNode.bvhNodeChildIndex_Second;
-                        currentNodeIndex = curNode.bvhNodeChildIndex_First;
-                        /*if (dirIsNeg[curNode.dim]) {
-                        }
-                        else {
-                        }*/
-                    }
-                }
-                // otherwise visit other nodes in nodesToVist or break
-                else {
-                    if (toVistOffset == 0) {
-                        break;
-                    }
-                    currentNodeIndex = nodesToVist[toVistOffset];
-                    toVistOffset--;
-                }
-            }
-
-            //for (int i = 0; i < prims_size; i++)
-            //{
-            //    BVHPrimitive& prim = bvhPrims[i];
-            //    Geom triangle = geoms[bvhPrims[i].leafGeomIndex];
-            //    t = boxIntersectionTest(triangle, pathSegment.ray, tmp_intersect, tmp_normal, outside);
-
-            //    // Compute the minimum t from the intersection tests to determine what
-            //    // scene geometry object was hit first.
-            //    if (t > 0.0f && t_min > t)
-            //    {
-            //        t_min = t;
-            //        hit_geom_index = i;
-            //        hitMaterialId = triangle.materialid;
-            //        intersect_point = tmp_intersect;
-            //        normal = tmp_normal;
-            //    }
-            //}
-        }
+        //if(prims_size > 0)
+        //{
+        //    bool hit = false;
+        //    // maybe don't need below
+        //    glm::vec3 invDir = glm::vec3(1.0f / pathSegment.ray.direction.x, 1.0f / pathSegment.ray.direction.y, 1.0f / pathSegment.ray.direction.z);
+        //    bool dirIsNeg[3] = { invDir.x < 0.0f, invDir.y < 0.0f, invDir.z < 0.0f };
+        //    int nodesToVist[64];
+        //    int toVistOffset = 0;
+        //    int currentNodeIndex = 0;
+        //    while (true) {
+        //        BVHNode curNode = bvhNodes[currentNodeIndex];
+        //        // if ray intersects with current node
+        //        if (boxIntersectionTest(curNode.boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside) > 0.0f) {
+        //            // if leaf node
+        //            if (curNode.numPrims > 0) {
+        //                for (int i = 0; i < curNode.numPrims; ++i) {
+        //                    Geom triangle = geoms[bvhPrims[curNode.firstPrimOffset + i].leafGeomIndex];
+        //                    t = triangleIntersectionTest(triangle, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+        //                    if (t > 0.0f) {
+        //                        hit = true;
+        //                        if (t > 0.0f && t_min > t)
+        //                        {
+        //                            t_min = t;
+        //                            hit_geom_index = i;
+        //                            hitMaterialId = triangle.materialid;
+        //                            intersect_point = tmp_intersect;
+        //                            normal = tmp_normal;
+        //                        }
+        //                    }
+        //                }
+        //                if (toVistOffset == 0) {
+        //                    break;
+        //                }
+        //                currentNodeIndex = nodesToVist[toVistOffset];
+        //                toVistOffset--;
+        //            }
+        //            else {
+        //                toVistOffset++;
+        //                nodesToVist[toVistOffset] = curNode.bvhNodeChildIndex_Second;
+        //                currentNodeIndex = curNode.bvhNodeChildIndex_First;
+        //                /*if (dirIsNeg[curNode.dim]) {
+        //                }
+        //                else {
+        //                }*/
+        //            }
+        //        }
+        //        // otherwise visit other nodes in nodesToVist or break
+        //        else {
+        //            if (toVistOffset == 0) {
+        //                break;
+        //            }
+        //            currentNodeIndex = nodesToVist[toVistOffset];
+        //            toVistOffset--;
+        //        }
+        //    }
+        //}
 
         if (hit_geom_index == -1)
         {
@@ -685,7 +683,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     // --- PathSegment Tracing Stage ---
     // Shoot ray into scene, bounce between objects, push shading chunks
 
-    while (depth < traceDepth)
+    while (depth < 1)
     {
         // clean shading chunks
         cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
@@ -764,13 +762,13 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_materials
             );*/
 
-        /*shadeMaterialColor << <numblocksPathSegmentTracing, blockSize1d >> > (
+        shadeMaterialColor << <numblocksPathSegmentTracing, blockSize1d >> > (
             iter,
             num_paths,
             dev_intersections,
             dev_paths,
             dev_materials
-            );*/
+            );
 
         if (guiData != NULL)
         {

@@ -65,14 +65,14 @@ glm::vec3 multiplyMV2(glm::mat4 m, glm::vec4 v)
     //return glm::vec3(0.0f);
 }
 
-Bounds createBoundsFromVerts(glm::vec3 v0, glm::vec3 v1, glm::vec3 v2, Geom& triGeom) {
+Bounds createBoundsFromVerts(glm::vec3 v0Input, glm::vec3 v1Input, glm::vec3 v2Input, Geom& triGeom) {
     Bounds newBounds;
     glm::vec3 minCorner;
     glm::vec3 maxCorner;
 
-    v0 = multiplyMV2(triGeom.transform, glm::vec4(v0, 1.0f));
-    v1 = multiplyMV2(triGeom.transform, glm::vec4(v1, 1.0f));
-    v2 = multiplyMV2(triGeom.transform, glm::vec4(v2, 1.0f));
+    glm::vec3 v0 = multiplyMV2(triGeom.transform, glm::vec4(v0Input, 1.0f));
+    glm::vec3 v1 = multiplyMV2(triGeom.transform, glm::vec4(v1Input, 1.0f));
+    glm::vec3  v2 = multiplyMV2(triGeom.transform, glm::vec4(v2Input, 1.0f));
 
     for (int i = 0; i < 3; i++)
     {
@@ -137,14 +137,14 @@ Geom createBoundingBoxGeomFromBounds(Bounds bounds)
     Geom newGeom;
     newGeom.type = CUBE;
     newGeom.materialid = 0;
-    const auto& trans = ((bounds.maxCorner + bounds.minCorner) / 2.0f);
-    const auto& rotat = glm::vec3(0.0f);
-    const auto& scale = glm::vec3(  glm::abs(bounds.maxCorner.x - bounds.minCorner.x),
+    const glm::vec3 trans = ((bounds.maxCorner + bounds.minCorner) / 2.0f);
+    const glm::vec3 rotat = glm::vec3(0.0f);
+    const glm::vec3 scale = glm::vec3(  glm::abs(bounds.maxCorner.x - bounds.minCorner.x),
                                     glm::abs(bounds.maxCorner.y - bounds.minCorner.y),
                                     glm::abs(bounds.maxCorner.z - bounds.minCorner.z));
     newGeom.translation = glm::vec3(trans[0], trans[1], trans[2]);
     newGeom.rotation = glm::vec3(rotat[0], rotat[1], rotat[2]);
-    newGeom.scale = glm::vec3(scale[0], scale[1], scale[2]);
+    newGeom.scale = glm::vec3(scale[0] + 0.1f, scale[1] + 0.1f, scale[2] + 0.1f);
     newGeom.transform = utilityCore::buildTransformationMatrix(
         newGeom.translation, newGeom.rotation, newGeom.scale);
     newGeom.inverseTransform = glm::inverse(newGeom.transform);
@@ -163,8 +163,14 @@ void printNode(BVHNode node) {
     fprintf(stderr, "second child index: [%d] \n", node.bvhNodeChildIndex_Second);
 }
 
-void printPrim(BVHPrimitive prim) {
+void printPrim(BVHPrimitive prim, std::vector<Geom>& geoms) {
     fprintf(stderr, "leaf geom index: [%d] \n", prim.leafGeomIndex);
+    fprintf(stderr, "MIN Bounding Corner: [%f, %f, %f] \n", prim.boundingCorners.minCorner.x, prim.boundingCorners.minCorner.y, prim.boundingCorners.minCorner.z);
+    fprintf(stderr, "MAX Bounding Corner: [%f, %f, %f] \n", prim.boundingCorners.maxCorner.x, prim.boundingCorners.maxCorner.y, prim.boundingCorners.maxCorner.z);
+    Geom trig = geoms[prim.leafGeomIndex];
+    fprintf(stderr, "vertex 0: [%f, %f, %f] \n", trig.v0.x, trig.v0.y, trig.v0.z);
+    fprintf(stderr, "vertex 1: [%f, %f, %f] \n", trig.v1.x, trig.v1.y, trig.v1.z);
+    fprintf(stderr, "vertex 2: [%f, %f, %f] \n", trig.v2.x, trig.v2.y, trig.v2.z);
 }
 
 // make empty bvh node and pass it in, this function populates it and creates its children then passes them into recursive calls
@@ -296,7 +302,6 @@ void Scene::loadFromJSON(const std::string& jsonName)
                             errors.entries[i].message ? errors.entries[i].message : "(null)");
                 }
             }
-            // ... use model ...
             fprintf(stderr, "mesh count: [%d] \n", model.meshes_count);
             for(int mesh_i = 0; mesh_i < model.meshes_count; ++mesh_i)
             {
@@ -430,6 +435,7 @@ void Scene::loadFromJSON(const std::string& jsonName)
             newPrim.boundingCorners = createBoundsFromVerts(g.v0, g.v1, g.v2, g);
             newPrim.leafGeomIndex = i;
             newPrim.boundingBox = createBoundingBoxGeomFromBounds(newPrim.boundingCorners);
+            printPrim(newPrim, geoms);
             bvhPrimitives.push_back(newPrim);
         }
     }
@@ -462,18 +468,20 @@ void Scene::loadFromJSON(const std::string& jsonName)
             bvhNodes.push_back(bvhNodeList[i]);
         }
 
-        /*for (int i = 0; i < bvhNodes.size(); i++) {
+
+        fprintf(stderr, "\nBVH Nodes\n");
+        for (int i = 0; i < bvhNodes.size(); i++) {
             fprintf(stderr, "\n");
             printNode(bvhNodes[i]);
         }
-
+        fprintf(stderr, "\nPrims\n");
         for (int i = 0; i < orderedPrims.size(); i++) {
-            printPrim(orderedPrims[i]);
+            printPrim(orderedPrims[i], geoms);
         }
-
+        fprintf(stderr, "\nGeoms\n");
         for (int i = 0; i < geoms.size(); i++) {
             fprintf(stderr, "index: [%d]  type: %d \n", i, geoms[i].type);
-        }*/
+        }
 
         delete[] bvhNodeList;
     }

@@ -93,10 +93,10 @@
         },
         {
             "TYPE":"modelFile",
-            "FILEPATH": "../models/Suzanne/glTF/Suzanne.gltf",
-            "MATERIAL":"diffuse_white",
-            "TRANS":[2.0,3.0,-3.0],
-            "ROTAT":[-90.0,0.0,0.0],
+            "FILEPATH": "../models/SciFiHelmet/glTF/SciFiHelmet.gltf",
+            "MATERIAL":"diffuse_red",
+            "TRANS":[2.0,2.0,0.0],
+            "ROTAT":[0.0,0.0,0.0],
             "SCALE":[1.0,1.0,1.0]
         }
     ]
