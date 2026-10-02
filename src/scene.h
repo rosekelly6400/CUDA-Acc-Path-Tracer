@@ -11,6 +11,7 @@ public:
     Scene(std::string filename);
 
     std::vector<Geom> geoms;
+    std::vector<Geom> lights;
     std::vector<Material> materials;
     std::vector<BVHNode> bvhNodes;
     std::vector<BVHPrimitive> bvhPrimitives;

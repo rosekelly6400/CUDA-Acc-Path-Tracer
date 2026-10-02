@@ -158,9 +158,13 @@ Geom createBoundingBoxGeomFromBounds(Bounds bounds)
 
 void printNode(BVHNode node) {
     fprintf(stderr, "num prims: [%d] \n", node.numPrims);
-    fprintf(stderr, "first prim offset: [%d] \n", node.numPrims);
+    fprintf(stderr, "first prim offset: [%d] \n", node.firstPrimOffset);
     fprintf(stderr, "first child index: [%d] \n", node.bvhNodeChildIndex_First);
     fprintf(stderr, "second child index: [%d] \n", node.bvhNodeChildIndex_Second);
+}
+
+void printPrim(BVHPrimitive prim) {
+    fprintf(stderr, "leaf geom index: [%d] \n", prim.leafGeomIndex);
 }
 
 // make empty bvh node and pass it in, this function populates it and creates its children then passes them into recursive calls
@@ -236,6 +240,7 @@ void recursiveBVHBuild(BVHNode& bvhNode, BVHNode* bvhNodes, std::vector<BVHPrimi
 
 void Scene::loadFromJSON(const std::string& jsonName)
 {
+    bool buildBVHTree = false;
     std::ifstream f(jsonName);
     json data = json::parse(f);
     const auto& materialsData = data["Materials"];
@@ -272,9 +277,10 @@ void Scene::loadFromJSON(const std::string& jsonName)
     {
         const auto& type = p["TYPE"];
         if(type == "modelFile") {
-            // TO DO: add each triangle as a geom here
+            buildBVHTree = true;
+
+            // add each triangle as a geom here
             std::string relativeFileName = p["FILEPATH"];
-            //newGeom.type = CUBE;
             tg3_parse_options opts;
             tg3_error_stack errors;
             tg3_model model;
@@ -282,8 +288,8 @@ void Scene::loadFromJSON(const std::string& jsonName)
             tg3_parse_options_init(&opts);
             tg3_error_stack_init(&errors);
 
-            //const char* gltfFilename = "../models/Suzanne/glTF/Suzanne.gltf";
-            const char* gltfFilename = "../models/Cube/Cube.gltf";
+            const char* gltfFilename = "../models/Suzanne/glTF/Suzanne.gltf";
+            //const char* gltfFilename = "../models/Cube/Cube.gltf";
             int filenameLength = std::string(gltfFilename).length();
             tg3_error_code err = tg3_parse_file(&model, &errors, gltfFilename, 24, &opts);
             if (err != TG3_OK) {
@@ -377,6 +383,10 @@ void Scene::loadFromJSON(const std::string& jsonName)
             newGeom.v2 = glm::vec3(0.0f);
 
             geoms.push_back(newGeom);
+
+            if (materials[newGeom.materialid].emittance > 0.0f ) {
+                lights.push_back(newGeom);
+            }
         }
     }
     const auto& cameraData = data["Camera"];
@@ -426,36 +436,47 @@ void Scene::loadFromJSON(const std::string& jsonName)
         }
     }
 
-    // create master bounding box
-    /*BVHNode bvhNode;
-    bvhNode.boundingCorners = bvhPrimitives[0].boundingCorners; 
+    if (bvhPrimitives.size() > 0) {
+        // create master bounding box
+        /*BVHNode bvhNode;
+        bvhNode.boundingCorners = bvhPrimitives[0].boundingCorners;
 
-    for (int i = 0; i < bvhPrimitives.size(); i++) {
-        BVHPrimitive p = bvhPrimitives[i];
-        bvhNode.boundingCorners = createBoundsFromBounds(bvhNode.boundingCorners, p.boundingCorners);
+        for (int i = 0; i < bvhPrimitives.size(); i++) {
+            BVHPrimitive p = bvhPrimitives[i];
+            bvhNode.boundingCorners = createBoundsFromBounds(bvhNode.boundingCorners, p.boundingCorners);
+        }
+        bvhNode.boundingBox = createBoundingBoxGeomFromBounds(bvhNode.boundingCorners);
+        bvhNodes.push_back(bvhNode);*/
+
+        /*BVHNode node;
+        recursiveBVHBuild(node, bvhNodes, bvhPrimitives, orderedPrims, 0, 1);*/
+        //bvhNodes.push_back(node);
+
+        BVHNode* bvhNodeList = new BVHNode[2 * bvhPrimitives.size()];
+        BVHNode node;
+        bvhNodeList[0] = node;
+        int numNodes = 1;
+        recursiveBVHBuild(bvhNodeList[0], bvhNodeList, bvhPrimitives, orderedPrims, 0, bvhPrimitives.size(), numNodes);
+        fprintf(stderr, "\n num prims: [%d] \n", bvhPrimitives.size());
+        fprintf(stderr, "\n num nodes: [%d] \n", numNodes);
+        // put bvhNodeList into vector and then free it
+        for (int i = 0; i < numNodes; i++) {
+            bvhNodes.push_back(bvhNodeList[i]);
+        }
+
+        /*for (int i = 0; i < bvhNodes.size(); i++) {
+            fprintf(stderr, "\n");
+            printNode(bvhNodes[i]);
+        }
+
+        for (int i = 0; i < orderedPrims.size(); i++) {
+            printPrim(orderedPrims[i]);
+        }
+
+        for (int i = 0; i < geoms.size(); i++) {
+            fprintf(stderr, "index: [%d]  type: %d \n", i, geoms[i].type);
+        }*/
+
+        delete[] bvhNodeList;
     }
-    bvhNode.boundingBox = createBoundingBoxGeomFromBounds(bvhNode.boundingCorners);
-    bvhNodes.push_back(bvhNode);*/
-
-    /*BVHNode node;
-    recursiveBVHBuild(node, bvhNodes, bvhPrimitives, orderedPrims, 0, 1);*/
-    //bvhNodes.push_back(node);
-
-    BVHNode* bvhNodeList = new BVHNode[2 * bvhPrimitives.size()];
-    BVHNode node;
-    bvhNodeList[0] = node;
-    int numNodes = 1;
-    recursiveBVHBuild(bvhNodeList[0], bvhNodeList, bvhPrimitives, orderedPrims, 0, bvhPrimitives.size(), numNodes);
-    fprintf(stderr, "\n num prims: [%d] \n", bvhPrimitives.size());
-    fprintf(stderr, "\n num nodes: [%d] \n", numNodes);
-    // put bvhNodeList into vector and then free it
-    for (int i = 0; i < numNodes; i++) {
-        bvhNodes.push_back(bvhNodeList[i]);
-    }
-
-    for (int i = 0; i < bvhNodes.size(); i++) {
-        fprintf(stderr, "\n");
-        printNode(bvhNodes[i]);
-    }
-    delete[] bvhNodeList;
 }

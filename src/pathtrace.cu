@@ -88,6 +88,7 @@ static ShadeableIntersection* dev_intersections = NULL;
 static glm::vec3* dev_tempImage = NULL;
 static BVHNode* dev_bvhNodes = NULL;
 static BVHPrimitive* dev_bvhPrimitives = NULL;
+static Geom* dev_lights = NULL;
 // ...
 
 void InitDataContainer(GuiDataContainer* imGuiData)
@@ -126,6 +127,9 @@ void pathtraceInit(Scene* scene)
     cudaMalloc(&dev_bvhNodes, scene->bvhNodes.size() * sizeof(BVHNode));
     cudaMemcpy(dev_bvhNodes, scene->bvhNodes.data(), scene->bvhNodes.size() * sizeof(BVHNode), cudaMemcpyHostToDevice);
 
+    cudaMalloc(&dev_lights, scene->lights.size() * sizeof(Geom));
+    cudaMemcpy(dev_lights, scene->lights.data(), scene->lights.size() * sizeof(Geom), cudaMemcpyHostToDevice);
+
     checkCUDAError("pathtraceInit");
 }
 
@@ -138,6 +142,9 @@ void pathtraceFree()
     cudaFree(dev_intersections);
     // TODO: clean up any extra device memory you created
     cudaFree(dev_tempImage);
+    cudaFree(dev_bvhPrimitives);
+    cudaFree(dev_bvhNodes);
+    cudaFree(dev_lights);
     checkCUDAError("pathtraceFree");
 }
 
@@ -167,7 +174,8 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         int sampleX = (iter % 16) / 4;
         int sampleY = iter % 4;
         thrust::default_random_engine rng = makeSeededRandomEngine(iter, x*iter, y*iter );
-        thrust::uniform_real_distribution<float> u01(0, 1);
+        // should be to 0.25 but get less aliasing with range 0 - 1
+        thrust::uniform_real_distribution<float> u01(0, 0.25);
         float xRandom = u01(rng);
         float yRandom = u01(rng);
         segment.ray.direction = glm::normalize(cam.view
@@ -212,12 +220,16 @@ __global__ void computeIntersections(
         glm::vec3 tmp_intersect;
         glm::vec3 tmp_normal;
 
-        // check if ray hits any triangles
-        int boundingBoxT = boxIntersectionTest(bvhNodes[0].boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside);
-        bool hitsBoundingVolume = boundingBoxT > 0.0f;
-        //bool hitsBoundingVolume = hitsBoundingBox(bvhNodes[0].boundingBox, pathSegment.ray);
-        //hitsBoundingVolume = true;
-        // naive parse through global geoms
+        bool hitsBoundingVolume = false;
+        if (prims_size > 0)
+        {
+            // check if ray hits any triangles
+            int boundingBoxT = boxIntersectionTest(bvhNodes[0].boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+            hitsBoundingVolume = boundingBoxT > 0.0f;
+            //bool hitsBoundingVolume = hitsBoundingBox(bvhNodes[0].boundingBox, pathSegment.ray);
+            //hitsBoundingVolume = true;
+            // naive parse through global geoms
+        }
 
         for (int i = 0; i < geoms_size; i++)
         {
@@ -252,80 +264,85 @@ __global__ void computeIntersections(
                 normal = tmp_normal;
             }
         }
+
+
         // Intersection test for BVH tree
-        bool hit = false;
-        // maybe don't need below
-        glm::vec3 invDir = glm::vec3(1.0f / pathSegment.ray.direction.x, 1.0f / pathSegment.ray.direction.y, 1.0f / pathSegment.ray.direction.z);
-        bool dirIsNeg[3] = { invDir.x < 0.0f, invDir.y < 0.0f, invDir.z < 0.0f };
+        if(prims_size > 0)
+        {
+            bool hit = false;
+            // maybe don't need below
+            glm::vec3 invDir = glm::vec3(1.0f / pathSegment.ray.direction.x, 1.0f / pathSegment.ray.direction.y, 1.0f / pathSegment.ray.direction.z);
+            bool dirIsNeg[3] = { invDir.x < 0.0f, invDir.y < 0.0f, invDir.z < 0.0f };
 
-        int nodesToVist[64];
-        int toVistOffset = 0;
-        int currentNodeIndex = 0;
+            int nodesToVist[64];
+            int toVistOffset = 0;
+            int currentNodeIndex = 0;
 
-        while (true) {
-            BVHNode curNode = bvhNodes[currentNodeIndex];
-            // if ray intersects with current node
-            if (boxIntersectionTest(curNode.boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside) > 0.0f) {
-                // if leaf node
-                if (curNode.numPrims > 0) {
-                    for (int i = 0; i < curNode.numPrims; ++i) {
-                        Geom triangle = geoms[bvhPrims[curNode.firstPrimOffset + i].leafGeomIndex];
-                        t = triangleIntersectionTest(triangle, pathSegment.ray, tmp_intersect, tmp_normal, outside);
-                        if (t > 0.0f) {
-                            hit = true;
-                            if (t > 0.0f && t_min > t)
-                            {
-                                t_min = t;
-                                hit_geom_index = i;
-                                hitMaterialId = triangle.materialid;
-                                intersect_point = tmp_intersect;
-                                normal = tmp_normal;
+            while (true) {
+                BVHNode curNode = bvhNodes[currentNodeIndex];
+                // if ray intersects with current node
+                if (boxIntersectionTest(curNode.boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside) > 0.0f) {
+                    // if leaf node
+                    if (curNode.numPrims > 0) {
+                        for (int i = 0; i < curNode.numPrims; ++i) {
+                            Geom triangle = geoms[bvhPrims[curNode.firstPrimOffset + i].leafGeomIndex];
+                            t = triangleIntersectionTest(triangle, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+                            if (t > 0.0f) {
+                                hit = true;
+                                if (t > 0.0f && t_min > t)
+                                {
+                                    t_min = t;
+                                    hit_geom_index = i;
+                                    hitMaterialId = triangle.materialid;
+                                    intersect_point = tmp_intersect;
+                                    normal = tmp_normal;
+                                }
                             }
                         }
+                        if (toVistOffset == 0) {
+                            break;
+                        }
+                        currentNodeIndex = nodesToVist[toVistOffset];
+                        toVistOffset--;
                     }
+                    else {
+                        toVistOffset++;
+                        nodesToVist[toVistOffset] = curNode.bvhNodeChildIndex_Second;
+                        currentNodeIndex = curNode.bvhNodeChildIndex_First;
+                        /*if (dirIsNeg[curNode.dim]) {
+                        }
+                        else {
+                        }*/
+                    }
+                }
+                // otherwise visit other nodes in nodesToVist or break
+                else {
                     if (toVistOffset == 0) {
                         break;
                     }
                     currentNodeIndex = nodesToVist[toVistOffset];
                     toVistOffset--;
                 }
-                else {
-                    toVistOffset++;
-                    nodesToVist[toVistOffset] = curNode.bvhNodeChildIndex_First;
-                    currentNodeIndex = curNode.bvhNodeChildIndex_Second;
-                    /*if (dirIsNeg[curNode.dim]) {
-                    }
-                    else {
-                    }*/
-                }
             }
-            // otherwise visit other nodes in nodesToVist or break
-            else {
-                if (toVistOffset == 0) {
-                    break;
-                }
-                currentNodeIndex = nodesToVist[toVistOffset];
-                toVistOffset--;
-            }
+
+            //for (int i = 0; i < prims_size; i++)
+            //{
+            //    BVHPrimitive& prim = bvhPrims[i];
+            //    Geom triangle = geoms[bvhPrims[i].leafGeomIndex];
+            //    t = boxIntersectionTest(triangle, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+
+            //    // Compute the minimum t from the intersection tests to determine what
+            //    // scene geometry object was hit first.
+            //    if (t > 0.0f && t_min > t)
+            //    {
+            //        t_min = t;
+            //        hit_geom_index = i;
+            //        hitMaterialId = triangle.materialid;
+            //        intersect_point = tmp_intersect;
+            //        normal = tmp_normal;
+            //    }
+            //}
         }
-
-        //for (int i = 0; i < prims_size; i++)
-        //{
-        //    BVHPrimitive& prim = bvhPrims[i];
-        //    Geom triangle = geoms[bvhPrims[i].leafGeomIndex];
-        //    t = boxIntersectionTest(triangle, pathSegment.ray, tmp_intersect, tmp_normal, outside);
-
-        //    // Compute the minimum t from the intersection tests to determine what
-        //    // scene geometry object was hit first.
-        //    if (t > 0.0f && t_min > t)
-        //    {
-        //        t_min = t;
-        //        hit_geom_index = i;
-        //        hitMaterialId = triangle.materialid;
-        //        intersect_point = tmp_intersect;
-        //        normal = tmp_normal;
-        //    }
-        //}
 
         if (hit_geom_index == -1)
         {
@@ -351,7 +368,7 @@ __global__ void computeIntersections(
 // Note that this shader does NOT do a BSDF evaluation!
 // Your shaders should handle that - this can allow techniques such as
 // bump mapping.
-__global__ void shadeFakeMaterial(
+__global__ void shadeMaterials_RandomSample(
     int iter,
     int num_paths,
     ShadeableIntersection* shadeableIntersections,
@@ -412,6 +429,77 @@ __global__ void shadeFakeMaterial(
         }
     }
 }
+
+//__global__ void shadeMaterials_DirectLight(
+//    int iter,
+//    int num_paths,
+//    ShadeableIntersection* shadeableIntersections,
+//    PathSegment* pathSegments,
+//    Material* materials,
+//    Geom* lights,
+//    int num_lights)
+//{
+//    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+//    if (idx < num_paths && pathSegments[idx].remainingBounces > 0)
+//    {
+//        ShadeableIntersection intersection = shadeableIntersections[idx];
+//        if (intersection.t > 0.0f) // if the intersection exists...
+//        {
+//            // Set up the RNG
+//            // LOOK: this is how you use thrust's RNG! Please look at
+//            // makeSeededRandomEngine as well.
+//            thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, pathSegments[idx].remainingBounces);
+//            thrust::uniform_real_distribution<float> u01(0, 1);
+//
+//            Material material = materials[intersection.materialId];
+//            glm::vec3 materialColor = material.color;
+//
+//            // If the material indicates that the object was a light, "light" the ray
+//            if (material.emittance > 0.0f) {
+//                pathSegments[idx].color = pathSegments[idx].throughput * (materialColor * material.emittance);
+//                pathSegments[idx].remainingBounces = 0;
+//            }
+//            else {
+//                // calculate bounced ray dir
+//                scatterRay(
+//                    pathSegments[idx],
+//                    intersection.intersectionPoint,
+//                    intersection.surfaceNormal,
+//                    materials[intersection.materialId],
+//                    rng);
+//                pathSegments[idx].remainingBounces--;
+//
+//                // if pdf is 0 or less (outside probable ray bounce directions) terminate ray
+//                if (pathSegments[idx].pdf <= EPSILON)
+//                {
+//                    pathSegments[idx].remainingBounces = 0;
+//                }
+//                else {
+//                    float lightTerm = glm::abs(glm::dot(intersection.surfaceNormal, pathSegments[idx].ray.direction));
+//                    pathSegments[idx].throughput *= (pathSegments[idx].color * lightTerm) / pathSegments[idx].pdf;
+//                }
+//
+//                // Direct lighting implementation
+//
+//                // randomly choose light
+//                Geom chosenLight = lights[0];
+//                glm::vec3 intersectToLight = chosenLight.translation - intersection.intersectionPoint;
+//                //calculate pdf for that direction
+//
+//
+//            }
+//            // If there was no intersection, color the ray black.
+//            // Lots of renderers use 4 channel color, RGBA, where A = alpha, often
+//            // used for opacity, in which case they can indicate "no opacity".
+//            // This can be useful for post-processing and image compositing.
+//
+//        }
+//        else {
+//            pathSegments[idx].color = glm::vec3(0.0f);
+//            pathSegments[idx].remainingBounces = 0;
+//        }
+//    }
+//}
 
 __global__ void shadeNormalsMaterial(
     int iter,
@@ -597,7 +685,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     // --- PathSegment Tracing Stage ---
     // Shoot ray into scene, bounce between objects, push shading chunks
 
-    while (depth < 1)
+    while (depth < traceDepth)
     {
         // clean shading chunks
         cudaMemset(dev_intersections, 0, pixelcount * sizeof(ShadeableIntersection));
@@ -605,17 +693,35 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         // tracing
 
         dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
-        computeIntersections<<<numblocksPathSegmentTracing, blockSize1d>>> (
-            depth,
-            num_paths,
-            dev_paths,
-            dev_geoms,
-            hst_scene->geoms.size(),
-            dev_intersections,
-            dev_bvhNodes,
-            dev_bvhPrimitives,
-            hst_scene->orderedPrims.size()
-        );
+
+        if(hst_scene->orderedPrims.size() > 0)
+        {
+            computeIntersections << <numblocksPathSegmentTracing, blockSize1d >> > (
+                depth,
+                num_paths,
+                dev_paths,
+                dev_geoms,
+                hst_scene->geoms.size(),
+                dev_intersections,
+                dev_bvhNodes,
+                dev_bvhPrimitives,
+                hst_scene->orderedPrims.size()
+                );
+        }
+        else {
+
+            computeIntersections << <numblocksPathSegmentTracing, blockSize1d >> > (
+                depth,
+                 num_paths,
+                dev_paths,
+                dev_geoms,
+                hst_scene->geoms.size(),
+                dev_intersections,
+                nullptr,
+                nullptr,
+                0
+                );
+        }
         checkCUDAError("trace one bounce");
         cudaDeviceSynchronize();
         // Sort by material
@@ -633,13 +739,23 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         // TODO: compare between directly shading the path segments and shading
         // path segments that have been reshuffled to be contiguous in memory.
 
-        /*shadeFakeMaterial<<<numblocksPathSegmentTracing, blockSize1d>>>(
+        shadeMaterials_RandomSample<<<numblocksPathSegmentTracing, blockSize1d>>>(
             iter,
             num_paths,
             dev_intersections,
             dev_paths,
             dev_materials
-        );*/
+        );
+
+        /*shadeMaterials_DirectLight << <numblocksPathSegmentTracing, blockSize1d >> > (
+            iter,
+            num_paths,
+            dev_intersections,
+            dev_paths,
+            dev_materials
+            dev_lights,
+            hst_scene->lights.size());*/
+
         /*shadeNormalsMaterial << <numblocksPathSegmentTracing, blockSize1d >> > (
             iter,
             num_paths,
@@ -648,13 +764,13 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             dev_materials
             );*/
 
-        shadeMaterialColor << <numblocksPathSegmentTracing, blockSize1d >> > (
+        /*shadeMaterialColor << <numblocksPathSegmentTracing, blockSize1d >> > (
             iter,
             num_paths,
             dev_intersections,
             dev_paths,
             dev_materials
-            );
+            );*/
 
         if (guiData != NULL)
         {
