@@ -93,7 +93,7 @@
         },
         {
             "TYPE":"modelFile",
-            "FILEPATH": "../models/Suzanne/glTF/Suzanne.gltf",
+            "FILEPATH": "../models/spotWithNormals/spotWithNormals.gltf",
             "MATERIAL":"diffuse_red",
             "TRANS":[2.0,2.0,0.0],
             "ROTAT":[0.0,0.0,0.0],

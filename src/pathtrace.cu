@@ -174,8 +174,7 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         int sampleX = (iter % 16) / 4;
         int sampleY = iter % 4;
         thrust::default_random_engine rng = makeSeededRandomEngine(iter, x*iter, y*iter );
-        // should be to 0.25 but get less aliasing with range 0 - 1
-        thrust::uniform_real_distribution<float> u01(-1.0f * 0.25, .25);
+        thrust::uniform_real_distribution<float> u01(-0.125, .125);
         float xRandom = u01(rng);
         float yRandom = u01(rng);
         segment.ray.direction = glm::normalize(cam.view
@@ -213,11 +212,9 @@ __global__ void generateDOFJitteredRayFromCamera(Camera cam, int iter, int trace
         segment.throughput = glm::vec3(1.0f, 1.0f, 1.0f);
         segment.pdf = 1.0f;
 
-        // TODO: implement antialiasing by jittering the ray
         int sampleX = (iter % 16) / 4;
         int sampleY = iter % 4;
         thrust::default_random_engine rng = makeSeededRandomEngine(iter, x * iter, y * iter);
-        // should be to 0.25 but get less aliasing with range 0 - 1
         thrust::uniform_real_distribution<float> u01(-1.0f * jitterRange, jitterRange);
         float xRandom = u01(rng);
         float yRandom = u01(rng);
@@ -271,8 +268,6 @@ __global__ void computeIntersections(
             int boundingBoxT = boxIntersectionTest(bvhNodes[0].boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside);
             hitsBoundingVolume = boundingBoxT > 0.0f;
             //bool hitsBoundingVolume = hitsBoundingBox(bvhNodes[0].boundingBox, pathSegment.ray);
-            //hitsBoundingVolume = true;
-            // naive parse through global geoms
         }
 
         for (int i = 0; i < geoms_size; i++)
@@ -468,77 +463,6 @@ __global__ void shadeMaterials_RandomSample(
     }
 }
 
-//__global__ void shadeMaterials_DirectLight(
-//    int iter,
-//    int num_paths,
-//    ShadeableIntersection* shadeableIntersections,
-//    PathSegment* pathSegments,
-//    Material* materials,
-//    Geom* lights,
-//    int num_lights)
-//{
-//    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-//    if (idx < num_paths && pathSegments[idx].remainingBounces > 0)
-//    {
-//        ShadeableIntersection intersection = shadeableIntersections[idx];
-//        if (intersection.t > 0.0f) // if the intersection exists...
-//        {
-//            // Set up the RNG
-//            // LOOK: this is how you use thrust's RNG! Please look at
-//            // makeSeededRandomEngine as well.
-//            thrust::default_random_engine rng = makeSeededRandomEngine(iter, idx, pathSegments[idx].remainingBounces);
-//            thrust::uniform_real_distribution<float> u01(0, 1);
-//
-//            Material material = materials[intersection.materialId];
-//            glm::vec3 materialColor = material.color;
-//
-//            // If the material indicates that the object was a light, "light" the ray
-//            if (material.emittance > 0.0f) {
-//                pathSegments[idx].color = pathSegments[idx].throughput * (materialColor * material.emittance);
-//                pathSegments[idx].remainingBounces = 0;
-//            }
-//            else {
-//                // calculate bounced ray dir
-//                scatterRay(
-//                    pathSegments[idx],
-//                    intersection.intersectionPoint,
-//                    intersection.surfaceNormal,
-//                    materials[intersection.materialId],
-//                    rng);
-//                pathSegments[idx].remainingBounces--;
-//
-//                // if pdf is 0 or less (outside probable ray bounce directions) terminate ray
-//                if (pathSegments[idx].pdf <= EPSILON)
-//                {
-//                    pathSegments[idx].remainingBounces = 0;
-//                }
-//                else {
-//                    float lightTerm = glm::abs(glm::dot(intersection.surfaceNormal, pathSegments[idx].ray.direction));
-//                    pathSegments[idx].throughput *= (pathSegments[idx].color * lightTerm) / pathSegments[idx].pdf;
-//                }
-//
-//                // Direct lighting implementation
-//
-//                // randomly choose light
-//                Geom chosenLight = lights[0];
-//                glm::vec3 intersectToLight = chosenLight.translation - intersection.intersectionPoint;
-//                //calculate pdf for that direction
-//
-//
-//            }
-//            // If there was no intersection, color the ray black.
-//            // Lots of renderers use 4 channel color, RGBA, where A = alpha, often
-//            // used for opacity, in which case they can indicate "no opacity".
-//            // This can be useful for post-processing and image compositing.
-//
-//        }
-//        else {
-//            pathSegments[idx].color = glm::vec3(0.0f);
-//            pathSegments[idx].remainingBounces = 0;
-//        }
-//    }
-//}
-
 __global__ void shadeNormalsMaterial(
     int iter,
     int num_paths,
@@ -725,7 +649,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
 
     if (depthOfFieldEffect) {
-        // compute intersections to get z
+        // compute intersections to get distance from camera
         computeIntersections << <numblocksPathSegmentTracing, blockSize1d >> > (
             0,
             num_paths,
@@ -738,7 +662,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
             hst_scene->orderedPrims.size()
             );
 
-        // use z to calculate distance from dof and how blurry it should be
+        // calculate distance from dof and how blurry it should be
         generateDOFJitteredRayFromCamera << <blocksPerGrid2d, blockSize2d >> > (cam, iter, traceDepth, dev_paths, dev_intersections, depthOfField);
     }
 

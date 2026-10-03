@@ -16,31 +16,6 @@
 using namespace std;
 using json = nlohmann::json;
 
-static int cmp_str_int_pair(const void* a, const void* b) {
-    const tg3_str_int_pair* pa = (const tg3_str_int_pair*)a;
-    const tg3_str_int_pair* pb = (const tg3_str_int_pair*)b;
-    uint32_t la = pa->key.len, lb = pb->key.len;
-    uint32_t m = la < lb ? la : lb;
-    int r = memcmp(pa->key.data, pb->key.data, m);
-    if (r) return r;
-    return (la < lb) ? -1 : (la > lb ? 1 : 0);
-}
-
-static void d_attrs(const tg3_str_int_pair* attrs, uint32_t n) {
-    tg3_str_int_pair* sorted;
-    uint32_t i;
-    if (n == 0) { fputs("[]", stdout); return; }
-    sorted = (tg3_str_int_pair*)malloc(n * sizeof(*sorted));
-    memcpy(sorted, attrs, n * sizeof(*sorted));
-    qsort(sorted, n, sizeof(*sorted), cmp_str_int_pair);
-    putchar('[');
-    for (i = 0; i < n; ++i) {
-        if (i) putchar(',');
-        printf("%.*s:%d", (int)sorted[i].key.len, sorted[i].key.data, sorted[i].value);
-    }
-    putchar(']');
-    free(sorted);
-}
 
 Scene::Scene(string filename)
 {
@@ -62,7 +37,6 @@ Scene::Scene(string filename)
 glm::vec3 multiplyMV2(glm::mat4 m, glm::vec4 v)
 {
     return glm::vec3(m * v);
-    //return glm::vec3(0.0f);
 }
 
 Bounds createBoundsFromVerts(glm::vec3 v0Input, glm::vec3 v1Input, glm::vec3 v2Input, Geom& triGeom) {
@@ -303,15 +277,6 @@ void Scene::loadFromJSON(const std::string& jsonName)
                 }
             }
 
-            // load first image in as texture
-            /*tg3_image firstImage = model.images[0];
-            const uint8_t* imageBuffer = (firstImage.image.data);
-            for (int i = 0; i < model.images[0].height * model.images[0].width; i++) {
-                uint8_t r = imageBuffer[i];
-                uint8_t g = imageBuffer[i + 1];
-                uint8_t b = imageBuffer[i + 2];
-                textureImage.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
-            }*/
 
             std::vector<glm::vec3> vertexPositions;
             std::vector<glm::vec3> vertexNormals;
@@ -438,8 +403,6 @@ void Scene::loadFromJSON(const std::string& jsonName)
 
                             geoms.push_back(newGeom);
                         }
-                         
-                        d_attrs(primitive.attributes, primitive.attributes_count);
                     }
                 }
             }

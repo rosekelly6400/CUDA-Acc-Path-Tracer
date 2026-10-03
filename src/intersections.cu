@@ -128,7 +128,7 @@ __host__ __device__ glm::vec3 barycentricInterpolateNormal(const Geom& triangle,
     return triangle.norm0 * (t0Area / totalArea) + triangle.norm1 * (t1Area / totalArea) + triangle.norm2 * (t2Area / totalArea);
 }
 
-// This is glm::intersectRayTriangle converted to CUDA and output slightly changed to match other intersect functions
+// This function uses glm::intersectRayTriangle code converted to CUDA with code from other intersect functions to give standardized intersection data
 __host__ __device__ float triangleIntersectionTest(
     Geom triangle,
     Ray r,
@@ -186,12 +186,6 @@ __host__ __device__ float triangleIntersectionTest(
     else {
         outside = false;
     }
-    /*outside = false;
-    if (!outside)
-    {
-        normal = -normal;
-    }*/
-    
 
     return baryPosition.z;
 }
