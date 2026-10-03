@@ -205,7 +205,7 @@ __global__ void generateDOFJitteredRayFromCamera(Camera cam, int iter, int trace
             /*jitterRange = distanceFromDOF/2.8f;
             jitterRange = jitterRange * jitterRange;*/
 
-            jitterRange = distanceFromDOF / 2.2f;
+            jitterRange = distanceFromDOF / 2.6f;
         }
 
         segment.ray.origin = cam.position;
@@ -290,8 +290,8 @@ __global__ void computeIntersections(
             // TODO: add more intersection tests here... triangle? metaball? CSG?
             //else if (geom.type == TRIANGLE && hitsBoundingVolume)
             //{
-            //    //t =  triangleIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
-            //    t = boxIntersectionTest(bvhNodes[0].boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+            //    t =  triangleIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+            //    //t = boxIntersectionTest(bvhNodes[0].boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside);
             //}
             else {
                 t = -1.0f;
@@ -369,10 +369,6 @@ __global__ void computeIntersections(
                         toVistOffset++;
                         nodesToVist[toVistOffset] = curNode.bvhNodeChildIndex_Second;
                         currentNodeIndex = curNode.bvhNodeChildIndex_First;
-                        /*if (dirIsNeg[curNode.dim]) {
-                        }
-                        else {
-                        }*/
                     }
                 }
                 // otherwise visit other nodes in nodesToVist or break

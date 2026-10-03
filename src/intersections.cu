@@ -169,12 +169,16 @@ __host__ __device__ float triangleIntersectionTest(
     baryPosition.z = f * glm::dot(e2, q);
     if (baryPosition.z < 0.0f) return -1;
 
-    // normal from cross product
-    //glm::vec3 objspaceNormal = glm::normalize(glm::cross(e1, e2));
-
     intersectionPoint = r.origin + baryPosition.z * r.direction;
-    // normal from interpolating vertex normals from gltf
-    glm::vec3 objspaceNormal = barycentricInterpolateNormal(triangle, intersectionPoint);
+    glm::vec3 objspaceNormal;
+    if (triangle.norm0 == glm::vec3(0.0f) && triangle.norm1 == glm::vec3(0.0f) && triangle.norm2 == glm::vec3(0.0f)) {
+        // normal from cross product
+        objspaceNormal = glm::normalize(glm::cross(e1, e2));
+    }
+    else {
+        // normal from interpolating vertex normals from gltf
+        objspaceNormal = barycentricInterpolateNormal(triangle, intersectionPoint);
+    }
     normal = glm::normalize(multiplyMV(triangle.invTranspose, glm::vec4(objspaceNormal, 0.f)));
     if (glm::dot(normal, r.direction) < FLT_EPSILON) {
         outside = true;

@@ -313,6 +313,9 @@ void Scene::loadFromJSON(const std::string& jsonName)
                 textureImage.push_back(glm::vec3(r / 255.0f, g / 255.0f, b / 255.0f));
             }*/
 
+            std::vector<glm::vec3> vertexPositions;
+            std::vector<glm::vec3> vertexNormals;
+
             fprintf(stderr, "mesh count: [%d] \n", model.meshes_count);
             for(int mesh_i = 0; mesh_i < model.meshes_count; ++mesh_i)
             {
@@ -323,6 +326,7 @@ void Scene::loadFromJSON(const std::string& jsonName)
                     const tg3_primitive primitive = mesh.primitives[prim_i];
                     fprintf(stderr, "prim mode: [%d] \n", primitive.mode);
                     fprintf(stderr, "prim attr count: [%d] \n", primitive.attributes_count);
+                    fprintf(stderr, "prim indices count: [%d] \n", primitive.attributes_count);
 
                     int firstGeomIndex = geoms.size();
                     if(primitive.mode == TG3_MODE_TRIANGLES)
@@ -355,30 +359,7 @@ void Scene::loadFromJSON(const std::string& jsonName)
 
                                 for (size_t vert_i = 0; vert_i < accessor.count; ++vert_i) {
                                     const float* curPosStart = reinterpret_cast<const float*>(&buffer.data.data[bufferView.byte_offset + accessor.byte_offset + (vert_i * byteStride)]);
-
-                                    Geom newGeom;
-                                    newGeom.type = TRIANGLE;
-                                    newGeom.materialid = MatNameToID[p["MATERIAL"]];
-                                    const auto& trans = p["TRANS"];
-                                    const auto& rotat = p["ROTAT"];
-                                    const auto& scale = p["SCALE"];
-                                    newGeom.translation = glm::vec3(trans[0], trans[1], trans[2]);
-                                    newGeom.rotation = glm::vec3(rotat[0], rotat[1], rotat[2]);
-                                    newGeom.scale = glm::vec3(scale[0], scale[1], scale[2]);
-                                    newGeom.transform = utilityCore::buildTransformationMatrix(
-                                        newGeom.translation, newGeom.rotation, newGeom.scale);
-                                    newGeom.inverseTransform = glm::inverse(newGeom.transform);
-                                    newGeom.invTranspose = glm::inverseTranspose(newGeom.transform);
-
-                                    newGeom.v0 = glm::vec3(curPosStart[0], curPosStart[1], curPosStart[2]);
-                                    ++vert_i;
-                                    curPosStart = reinterpret_cast<const float*>(&buffer.data.data[bufferView.byte_offset + accessor.byte_offset + (vert_i * byteStride)]);
-                                    newGeom.v1 = glm::vec3(curPosStart[0], curPosStart[1], curPosStart[2]);
-                                    ++vert_i;
-                                    curPosStart = reinterpret_cast<const float*>(&buffer.data.data[bufferView.byte_offset + accessor.byte_offset + (vert_i * byteStride)]);
-                                    newGeom.v2 = glm::vec3(curPosStart[0], curPosStart[1], curPosStart[2]);
-
-                                    geoms.push_back(newGeom);
+                                    vertexPositions.push_back(glm::vec3(curPosStart[0], curPosStart[1], curPosStart[2]));
                                 }
                             }
                         }
@@ -405,21 +386,59 @@ void Scene::loadFromJSON(const std::string& jsonName)
 
                                 int currGeomIndex = firstGeomIndex;
                                 for (size_t vert_i = 0; vert_i < accessor.count; ++vert_i) {
-                                    const float* curPosStart = reinterpret_cast<const float*>(&buffer.data.data[bufferView.byte_offset + accessor.byte_offset + (vert_i * byteStride)]);
-
-                                    // add vertex normals to existing geom
-                                    geoms[currGeomIndex].norm0 = glm::vec3(curPosStart[0], curPosStart[1], curPosStart[2]);
-                                    ++vert_i;
-                                    curPosStart = reinterpret_cast<const float*>(&buffer.data.data[bufferView.byte_offset + accessor.byte_offset + (vert_i * byteStride)]);
-                                    geoms[currGeomIndex].norm1 = glm::vec3(curPosStart[0], curPosStart[1], curPosStart[2]);
-                                    ++vert_i;
-                                    curPosStart = reinterpret_cast<const float*>(&buffer.data.data[bufferView.byte_offset + accessor.byte_offset + (vert_i * byteStride)]);
-                                    geoms[currGeomIndex].norm2 = glm::vec3(curPosStart[0], curPosStart[1], curPosStart[2]);
-
-                                    currGeomIndex++;
+                                    const float* curNormStart = reinterpret_cast<const float*>(&buffer.data.data[bufferView.byte_offset + accessor.byte_offset + (vert_i * byteStride)]);
+                                    vertexNormals.push_back(glm::vec3(curNormStart[0], curNormStart[1], curNormStart[2]));
                                 }
                             }
                         }
+
+                        // GET INDICES FOR VERTICES
+                        const tg3_accessor& indexAccessor = model.accessors[primitive.indices];
+                        const tg3_buffer_view& indexBufferView = model.buffer_views[indexAccessor.buffer_view];
+                        const tg3_buffer& indexBuffer = model.buffers[indexBufferView.buffer];
+                        const unsigned short* indices = reinterpret_cast<const unsigned short*>(&indexBuffer.data.data[indexBufferView.byte_offset + indexAccessor.byte_offset]);
+                        fprintf(stderr, "INDEX accessor count : [%d] \n", indexAccessor.count);
+                        size_t indexByteStride = indexBufferView.byte_stride;
+                        if (indexByteStride == 0) {
+                            indexByteStride = 2;
+                        }
+                        fprintf(stderr, "Index Byte Stride : [%d] \n", indexByteStride);
+
+                        bool hasNormals = vertexNormals.size() > 0;
+
+                        for (int i = 0; i < indexAccessor.count; i++) {
+                            const unsigned short* curIndexStart = reinterpret_cast<const unsigned short*>(&indexBuffer.data.data[indexBufferView.byte_offset + indexAccessor.byte_offset + i*indexByteStride]);
+                            fprintf(stderr, "Index Num : [%d] \n", curIndexStart[0]);
+
+                            Geom newGeom;
+                            newGeom.type = TRIANGLE;
+                            newGeom.materialid = MatNameToID[p["MATERIAL"]];
+                            const auto& trans = p["TRANS"];
+                            const auto& rotat = p["ROTAT"];
+                            const auto& scale = p["SCALE"];
+                            newGeom.translation = glm::vec3(trans[0], trans[1], trans[2]);
+                            newGeom.rotation = glm::vec3(rotat[0], rotat[1], rotat[2]);
+                            newGeom.scale = glm::vec3(scale[0], scale[1], scale[2]);
+                            newGeom.transform = utilityCore::buildTransformationMatrix(
+                                newGeom.translation, newGeom.rotation, newGeom.scale);
+                            newGeom.inverseTransform = glm::inverse(newGeom.transform);
+                            newGeom.invTranspose = glm::inverseTranspose(newGeom.transform);
+
+                            newGeom.v0 = vertexPositions[curIndexStart[0]];
+                            if(hasNormals) newGeom.norm0 = vertexNormals[curIndexStart[0]];
+                            ++i;
+                            curIndexStart = reinterpret_cast<const unsigned short*>(&indexBuffer.data.data[indexBufferView.byte_offset + indexAccessor.byte_offset + i * indexByteStride]);
+                            newGeom.v1 = vertexPositions[curIndexStart[0]];
+                            if (hasNormals) newGeom.norm1 = vertexNormals[curIndexStart[0]];
+
+                            ++i;
+                            curIndexStart = reinterpret_cast<const unsigned short*>(&indexBuffer.data.data[indexBufferView.byte_offset + indexAccessor.byte_offset + i * indexByteStride]);
+                            newGeom.v2 = vertexPositions[curIndexStart[0]];
+                            if (hasNormals) newGeom.norm2 = vertexNormals[curIndexStart[0]];
+
+                            geoms.push_back(newGeom);
+                        }
+                         
                         d_attrs(primitive.attributes, primitive.attributes_count);
                     }
                 }
