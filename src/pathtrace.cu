@@ -25,7 +25,7 @@
 #define SORT_RAYS_BY_MATERIAL 0
 #define RAY_STREAM_COMPACTION 0
 #define ANTI_ALIASING 0
-#define USE_DEPTH_OF_FIELD 0
+#define USE_DEPTH_OF_FIELD 1
 #define USE_BVH_TREE 1
 
 
@@ -218,10 +218,8 @@ __global__ void generateDOFJitteredRayFromCamera(Camera cam, int iter, int trace
 
         if (curIntersection.t > 0.0f) {
             float distanceFromDOF = std::abs (depthOfField - glm::length(cam.position - curIntersection.intersectionPoint));
-            /*jitterRange = distanceFromDOF/2.8f;
-            jitterRange = jitterRange * jitterRange;*/
 
-            jitterRange = distanceFromDOF / 2.6f;
+            jitterRange = distanceFromDOF / 2.2f;
         }
 
         segment.ray.origin = cam.position;
