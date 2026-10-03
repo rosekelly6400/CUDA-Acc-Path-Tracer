@@ -21,6 +21,15 @@
 
 #define ERRORCHECK 1
 
+// TOGGLES FOR FEATURES HERE
+#define SORT_RAYS_BY_MATERIAL 0
+#define RAY_STREAM_COMPACTION 0
+#define ANTI_ALIASING 0
+#define USE_DEPTH_OF_FIELD 0
+#define USE_BVH_TREE 1
+
+
+
 #define FILENAME (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 #define checkCUDAError(msg) checkCUDAErrorFn(msg, FILENAME, __LINE__)
 void checkCUDAErrorFn(const char* msg, const char* file, int line)
@@ -171,16 +180,24 @@ __global__ void generateRayFromCamera(Camera cam, int iter, int traceDepth, Path
         segment.pdf = 1.0f;
 
         // TODO: implement antialiasing by jittering the ray
-        int sampleX = (iter % 16) / 4;
-        int sampleY = iter % 4;
-        thrust::default_random_engine rng = makeSeededRandomEngine(iter, x*iter, y*iter );
-        thrust::uniform_real_distribution<float> u01(-0.125, .125);
-        float xRandom = u01(rng);
-        float yRandom = u01(rng);
-        segment.ray.direction = glm::normalize(cam.view
-            - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f - ((float)sampleX * cam.pixelLength.x * 0.25f + xRandom))
-            - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f - ((float)sampleY * cam.pixelLength.y * 0.25f + yRandom))
-        );
+        if (ANTI_ALIASING) {
+            int sampleX = (iter % 16) / 4;
+            int sampleY = iter % 4;
+            thrust::default_random_engine rng = makeSeededRandomEngine(iter, x * iter, y * iter);
+            thrust::uniform_real_distribution<float> u01(-0.125, .125);
+            float xRandom = u01(rng);
+            float yRandom = u01(rng);
+            segment.ray.direction = glm::normalize(cam.view
+                - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f - ((float)sampleX * cam.pixelLength.x * 0.25f + xRandom))
+                - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f - ((float)sampleY * cam.pixelLength.y * 0.25f + yRandom))
+            );
+        }
+        else {
+            segment.ray.direction = glm::normalize(cam.view
+                - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f)
+                - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f)
+            );
+        }
 
         segment.pixelIndex = index;
         segment.remainingBounces = traceDepth;
@@ -212,16 +229,25 @@ __global__ void generateDOFJitteredRayFromCamera(Camera cam, int iter, int trace
         segment.throughput = glm::vec3(1.0f, 1.0f, 1.0f);
         segment.pdf = 1.0f;
 
-        int sampleX = (iter % 16) / 4;
-        int sampleY = iter % 4;
+        
         thrust::default_random_engine rng = makeSeededRandomEngine(iter, x * iter, y * iter);
         thrust::uniform_real_distribution<float> u01(-1.0f * jitterRange, jitterRange);
         float xRandom = u01(rng);
         float yRandom = u01(rng);
-        segment.ray.direction = glm::normalize(cam.view
-            - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f - ((float)sampleX * cam.pixelLength.x * 0.25f + xRandom))
-            - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f - ((float)sampleY * cam.pixelLength.y * 0.25f + yRandom))
-        );
+        if (ANTI_ALIASING) {
+            int sampleX = (iter % 16) / 4;
+            int sampleY = iter % 4;
+            segment.ray.direction = glm::normalize(cam.view
+                - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f - ((float)sampleX * cam.pixelLength.x * 0.25f + xRandom))
+                - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f - ((float)sampleY * cam.pixelLength.y * 0.25f + yRandom))
+            );
+        }
+        else {
+            segment.ray.direction = glm::normalize(cam.view
+                - cam.right * cam.pixelLength.x * ((float)x - (float)cam.resolution.x * 0.5f +xRandom)
+                - cam.up * cam.pixelLength.y * ((float)y - (float)cam.resolution.y * 0.5f + yRandom)
+            );
+        }
 
 
         segment.pixelIndex = index;
@@ -283,11 +309,11 @@ __global__ void computeIntersections(
                 t = sphereIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
             }
             // TODO: add more intersection tests here... triangle? metaball? CSG?
-            //else if (geom.type == TRIANGLE && hitsBoundingVolume)
-            //{
-            //    t =  triangleIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
-            //    //t = boxIntersectionTest(bvhNodes[0].boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside);
-            //}
+            else if (!USE_BVH_TREE && geom.type == TRIANGLE)
+            {
+                t =  triangleIntersectionTest(geom, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+                //t = boxIntersectionTest(bvhNodes[0].boundingBox, pathSegment.ray, tmp_intersect, tmp_normal, outside);
+            }
             else {
                 t = -1.0f;
             }
@@ -324,7 +350,7 @@ __global__ void computeIntersections(
 
 
         // Intersection test for BVH tree
-        if(prims_size > 0)
+        if(USE_BVH_TREE && prims_size > 0)
         {
             bool hit = false;
             // maybe don't need below
@@ -602,10 +628,6 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     const int blockSize1d = 128;
 
 
-    // VALUES TO MAKE TOGGLES EASIER
-    bool bTerminatePaths = true;
-    bool bSortByMaterial = false;
-
     ///////////////////////////////////////////////////////////////////////////
 
     // Recap:
@@ -640,7 +662,6 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     generateRayFromCamera<<<blocksPerGrid2d, blockSize2d>>>(cam, iter, traceDepth, dev_paths);
     checkCUDAError("generate camera ray");
 
-    bool depthOfFieldEffect = true;
     float depthOfField = 9.0f;
 
     int depth = 0;
@@ -648,7 +669,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
     int num_paths = dev_path_end - dev_paths;
     dim3 numblocksPathSegmentTracing = (num_paths + blockSize1d - 1) / blockSize1d;
 
-    if (depthOfFieldEffect) {
+    if (USE_DEPTH_OF_FIELD) {
         // compute intersections to get distance from camera
         computeIntersections << <numblocksPathSegmentTracing, blockSize1d >> > (
             0,
@@ -692,7 +713,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         checkCUDAError("trace one bounce");
         cudaDeviceSynchronize();
         // Sort by material
-        if (bSortByMaterial) {
+        if (SORT_RAYS_BY_MATERIAL) {
             thrust::sort_by_key(thrust::device, dev_intersections, dev_intersections + num_paths, dev_paths, material_compare());
         }
         depth++;
@@ -745,7 +766,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
         }
         cudaDeviceSynchronize();
 
-        if (bTerminatePaths)
+        if (RAY_STREAM_COMPACTION)
         {
             dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
             tempGather << <numBlocksPixels, blockSize1d >> > (num_paths, dev_tempImage, dev_paths);
@@ -761,7 +782,7 @@ void pathtrace(uchar4* pbo, int frame, int iter)
 
     // Assemble this iteration and apply it to the image
     dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
-    if (bTerminatePaths) {
+    if (RAY_STREAM_COMPACTION) {
         finalGatherFromTempImage << <numBlocksPixels, blockSize1d >> > (pixelcount, dev_image, dev_tempImage);
     }
     else {
