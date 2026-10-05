@@ -16,15 +16,16 @@ CUDA Path Tracer
 #### Perfectly Specular and Diffuse Materials
 <img src="img/cornellSpecular.png" width="400" > <img src="img/cornellDiffuse.png" width="400" >
 
-#### Sorting Rays by Material
- <img src="img/noMaterialSort.png" width="400" > <img src="img/materialSort.png" width="400" >
- 
-I also implemented a feature to sort paths by material type before processing their bsdf and pdf. In theory this should improve performance by reducing thread divergence since different materials take different paths in the shade and scatter ray kernels and this slows performance within warps since if/else statements are serialized in a warp. Grouping paths of the same material in the buffer should make most warps only have one type of material, thus saving time by not having to run multiple if/else paths in serial execution. In practice this actually made my path tracer perform worse. This is likely because the saved time was minimal due to only having two materials implemented, making the overhead of running thrust's sort more costly than the saved time from less thread divergence. As you can see in the graph above, the time it takes to sort the rays is more than double the combined time to compute intersections and shading, so the overhead for this feature is massive, making it a bad fit for the small number of materials in the cornell box scene.
-
 #### Stream Compaction to Terminate Dead Rays
  <img src="img/openNoStreamCompact.png" width="400" > <img src="img/openStreamCompact.png" width="400" >
 
- | Number of Bounces	| Unterminated Rays (Open Box) | Unterminated Rays (Closed Box) |
+I added path stream compaction to the pathtracer to remove "dead" paths that no longer would contribute to the image, and thus would be wasting resources to allocate threads for. I used thrust's remove_if function to remove any paths that had no more remaining bounces (and used the remaining bounces variable in my pathtracing code to set a path as terminated in the case of it hitting nothing or a light). 
+
+As the above graphs show, in an open scene (in this case an open cornell box), stream compaction increases performance significantly, especially by the 5th bounce when many rays have bounced out of the box and thus are no longer usable.
+
+ <img src="img/closedNoStreamCompact.png" width="400" > <img src="img/closedStreamCompact.png" width="400" >
+
+  | Number of Bounces	| Unterminated Rays (Open Box) | Unterminated Rays (Closed Box) |
 | ------------- | ------------- | ------------- |
 |0	|640000	|640000|
 |1	|522868	|632841|
@@ -33,16 +34,17 @@ I also implemented a feature to sort paths by material type before processing th
 |4	|222683	|608827|
 |5	|179838	|601856|
 
-I implemented stream compaction to remove "dead" paths that no longer would contribute to the image, and thus would be wasting resources to allocate threads for. I used thrust's remove_if function to remove any paths that had no more remaining bounces (and used the remaining bounces variable in my pathtracing code to set a path as terminated in the case of it hitting nothing or a light). 
-
-As the above graphs show, in an open scene (in this case an open cornell box), stream compaction increases performance significantly, especially by the 5th bounce when many rays have bounced out of the box and thus are no longer usable.
-
- <img src="img/closedNoStreamCompact.png" width="400" > <img src="img/closedStreamCompact.png" width="400" >
-
 The above graphs reflect the impact of stream compaction in a closed cornell box. As you can see, there appears to be almost no difference between when stream compaction is on and off when the box is closed. This is likely due to the fact that when the box is closed, far fewer rays terminate each bounce since none are bouncing out of the box into oblivion. This is supported by the fact that the number of unterminated rays at the 5th bounce are 601856 for a closed box (not so far from the 640000 the iteration started with) while in an open box the 5th bounce has only 179838 unterminated rays, explaining the significant performance boost from not allocating threads for all of those terminated rays.
+
+ #### Sorting Rays by Material
+ <img src="img/noMaterialSort.png" width="400" > <img src="img/materialSort.png" width="400" >
  
+I also implemented a feature to sort paths by material type before processing their bsdf and pdf. In theory this should improve performance by reducing thread divergence since different materials take different paths in the shade and scatter ray kernels and this slows performance within warps since if/else statements are serialized in a warp. Grouping paths of the same material in the buffer should make most warps only have one type of material, thus saving time by not having to run multiple if/else paths in serial execution. In practice this actually made my path tracer perform worse. This is likely because the saved time was minimal due to only having two materials implemented, making the overhead of running thrust's sort more costly than the saved time from less thread divergence. As you can see in the graph above, the time it takes to sort the rays is more than double the combined time to compute intersections and shading, so the overhead for this feature is massive, making it a bad fit for the small number of materials in the cornell box scene.
+
 #### Stochastic Sampled Antialiasing
-<img src="img/noAA.png" width="300" >  <img src="img/AA.png" width="300" >
+<img src="img/noAA.png" width="400" >  <img src="img/AA.png" width="400" >
+
+Look at where the red wall and white floor meet and the edges of the box to see aliasing in the left image and a less pixelation in the right image.
 
 I implemented stochastic sampled antialiasing as described in the "stochastic sampling" section of this page: https://paulbourke.net/miscellaneous/raytracing/. My implementation splits each pixel up into 16 squares and as the pathtracer iterates, the rays cast from the camera through each pixel also iterate through the 16 sub-pixel squares by shooting a ray through a random location in that iteration's sub-pixel square. The result of jittering the ray is that the color of each overall pixel is the combination of random rays through the 16 sub-pixels. Harsh aliasing occurs without this method because the ray hits the same location in the scene each time on the first bounce even if the pixel contains multiple objects, like an edge of an object, which leads to the pixelated edges associated with aliasing. This method allows the pixel to reflect the combined colors of multiple objects contained in the pixel, creating a smoother, blurred edge instead of harsh pixelation.
 
