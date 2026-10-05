@@ -74,7 +74,7 @@ These times were taken from 1 iteration of rendering the below image:
 I implemented a BVH tree acceleration structure based on the notes in the Physically Based Rendering book here: https://pbr-book.org/3ed-2018/Primitives_and_Intersection_Acceleration/Bounding_Volume_Hierarchies. The actual implementation essentially consists of building a bounding volume around all of the triangles and then splitting the triangles into groups and sub groups and so on, each with their own bounding volume to create a hierarchy of bounding volumes the program can traverse to more quickly test intersection.  I split the groups based on whether or not the centers of the triangles were above or below the midpoint of the longest axis of the bounding volume encompassing them.
 Intersection for a ray is tested using a BVH tree by first testing if the ray hits the highest level bounding volume and if so it tests the bounding volume's two children. This continues down the tree to the "leaves" which are the actual triangles. This should reduce the amount of intersection tests needed to be done since instead of brute force checking intersection with every triangle, whole groups of triangles can be ignored if the ray doesn't intersect with their bounding volume. As shown in the graph above, this considerably cuts down on the time it takes to compute intersections for even mildly complex triangle meshes.
 
-The BVH tree construction was done on the CPU and then buffered to the GPU, and the traversal is done on the GPU as part of the rest of the GPU pathtracing code.
+The BVH tree construction was done on the CPU and then sent to the GPU, and the traversal is done on the GPU as part of the rest of the GPU pathtracing code.
 
 
 #### Feature Toggles
