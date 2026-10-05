@@ -54,7 +54,7 @@ I implemented stochastic sampled antialiasing as described in the "stochastic sa
 I also added a depth of field effect. I jitter the ray in similar way as described in the antialiasing section to create a blurred depth of field effect. If objects are close to the depth of field they will have relatively little jitter and will be sharper, while objects far from the depth of field will be blurry and appear out of focus.
 
 #### GLTF File Reading
-<img src="img/monkeyHallway.png" width="400" >
+<img src="img/debugNormals.png" width="300" > <img src="img/debugMat.png" width="300" > <img src="img/monkeyHallway.png" width="350" >
  I added glTF file loading as a feature using the tinygltf library. This essentially consisted of loading the file using the library and accessing the vertex data for the mesh and indices indicating what order to use the vertex data to create triangles. I then used those triangles to create the BVH tree detailed below. The file reading and triangle construction is done on the CPU.
  
 #### BVH TREE
@@ -91,6 +91,9 @@ If you want to try the features described above, there are the following macros 
 - PBR book: https://pbr-book.org/3ed-2018
 - Thrust Examples of sort from NVIDIA CCCL: https://github.com/NVIDIA/cccl/blob/main/thrust/examples/sort.cu
 - OpenGL code I wrote from my CIS 5610 pathtracer
+
+#### CMake Note:
+I changed the CMakeLists.txt file to build tinygltf
 
 #### Bloopers/Bugs
 
