@@ -11,6 +11,8 @@ CUDA Path Tracer
 
 <img src="img/cowLookingAtBall.png" width="600" >
 
+<img src="img/mirrorbox.png" width="600" >
+
 ## Features
 
 #### Perfectly Specular and Diffuse Materials
