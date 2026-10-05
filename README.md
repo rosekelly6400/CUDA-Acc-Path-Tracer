@@ -14,8 +14,7 @@ CUDA Path Tracer
 ## Features
 
 #### Perfectly Specular and Diffuse Materials
-
-
+<img src="img/cornellSpecular.png" width="400" > <img src="img/cornellDiffuse.png" width="400" >
 
 #### Sorting Rays by Material
  <img src="img/noMaterialSort.png" width="400" > <img src="img/materialSort.png" width="400" >
@@ -24,6 +23,15 @@ I also implemented a feature to sort paths by material type before processing th
 
 #### Stream Compaction to Terminate Dead Rays
  <img src="img/openNoStreamCompact.png" width="400" > <img src="img/openStreamCompact.png" width="400" >
+
+ | Number of Bounces	| Unterminated Rays (Open Box) | Unterminated Rays (Closed Box) |
+| ------------- | ------------- | ------------- |
+|0	|640000	|640000|
+|1	|522868	|632841|
+|2	|362096	|623890|
+|3	|279658	|616097|
+|4	|222683	|608827|
+|5	|179838	|601856|
 
 I implemented stream compaction to remove "dead" paths that no longer would contribute to the image, and thus would be wasting resources to allocate threads for. I used thrust's remove_if function to remove any paths that had no more remaining bounces (and used the remaining bounces variable in my pathtracing code to set a path as terminated in the case of it hitting nothing or a light). 
 
@@ -44,6 +52,7 @@ I implemented stochastic sampled antialiasing as described in the "stochastic sa
 I also added a depth of field effect. I jitter the ray in similar way as described in the antialiasing section to create a blurred depth of field effect. If objects are close to the depth of field they will have relatively little jitter and will be sharper, while objects far from the depth of field will be blurry and appear out of focus.
 
 #### GLTF File Reading
+<img src="img/monkeyHallway.png" width="400" >
  I added glTF file loading as a feature using the tinygltf library. This essentially consisted of loading the file using the library and accessing the vertex data for the mesh and indices indicating what order to use the vertex data to create triangles. I then used those triangles to create the BVH tree detailed below. The file reading and triangle construction is done on the CPU.
  
 #### BVH TREE
@@ -51,7 +60,7 @@ I also added a depth of field effect. I jitter the ray in similar way as describ
 
 These times were taken from 1 iteration of rendering the below image:
 
- 
+<img src="img/cowBox.png" width="400" >
 
  | BVH OFF	| BVH ON |
 | ------------- | ------------- |
