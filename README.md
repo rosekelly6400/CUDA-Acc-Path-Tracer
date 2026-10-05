@@ -57,6 +57,7 @@ I also added a depth of field effect. I jitter the ray in similar way as describ
 
 #### GLTF File Reading
 <img src="img/debugNormals.png" width="300" > <img src="img/debugMat.png" width="300" > <img src="img/monkeyHallway.png" width="350" >
+
  I added glTF file loading as a feature using the tinygltf library. This essentially consisted of loading the file using the library and accessing the vertex data for the mesh and indices indicating what order to use the vertex data to create triangles. I then used those triangles to create the BVH tree detailed below. The file reading and triangle construction is done on the CPU.
  
 #### BVH TREE
