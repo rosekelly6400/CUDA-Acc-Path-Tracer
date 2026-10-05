@@ -7,20 +7,22 @@ CUDA Path Tracer
   * [LinkedIn](www.linkedin.com/in/rose-kelly-b480b01a8)
 * Tested on: Windows 11, i7-13700F @ 2.10 GHz 16GB, RTX 4060-Ti 8GB (PC)
 
-<img src="img/monkeyHallway.png" width="500" >
+<img src="img/monkeyHallway.png" width="600" >
 
-<img src="img/cowLookingAtBall.png" width="500" >
+<img src="img/cowLookingAtBall.png" width="600" >
 
-Core Features
-- Basic monte carlo path tracer and diffuse material and perfectly specular material
-    - IMAGE diffuse and specular right next to each other
-I implemented basic path tracing and diffuse and perfectly specular materials.
+## Features
+
+#### Perfectly Specular and Diffuse Materials
+
+
+
 #### Sorting Rays by Material
  <img src="img/noMaterialSort.png" width="400" > <img src="img/materialSort.png" width="400" >
  
 I also implemented a feature to sort paths by material type before processing their bsdf and pdf. In theory this should improve performance by reducing thread divergence since different materials take different paths in the shade and scatter ray kernels and this slows performance within warps since if/else statements are serialized in a warp. Grouping paths of the same material in the buffer should make most warps only have one type of material, thus saving time by not having to run multiple if/else paths in serial execution. In practice this actually made my path tracer perform worse. This is likely because the saved time was minimal due to only having two materials implemented, making the overhead of running thrust's sort more costly than the saved time from less thread divergence. As you can see in the graph above, the time it takes to sort the rays is more than double the combined time to compute intersections and shading, so the overhead for this feature is massive, making it a bad fit for the small number of materials in the cornell box scene.
 
-#### stream compaction to terminate dead rays
+#### Stream Compaction to Terminate Dead Rays
  <img src="img/openNoStreamCompact.png" width="400" > <img src="img/openStreamCompact.png" width="400" >
 
 I implemented stream compaction to remove "dead" paths that no longer would contribute to the image, and thus would be wasting resources to allocate threads for. I used thrust's remove_if function to remove any paths that had no more remaining bounces (and used the remaining bounces variable in my pathtracing code to set a path as terminated in the case of it hitting nothing or a light). 
@@ -50,14 +52,16 @@ I also added a depth of field effect. I jitter the ray in similar way as describ
 These times were taken from 1 iteration of rendering the below image:
 
  
+
+ | BVH OFF	| BVH ON |
+| ------------- | ------------- |
+|5564.163 ms/frame	| 3266.386 ms/frame	|
+
 I implemented a BVH tree acceleration structure based on the notes in the Physically Based Rendering book here: https://pbr-book.org/3ed-2018/Primitives_and_Intersection_Acceleration/Bounding_Volume_Hierarchies. The actual implementation essentially consists of building a bounding volume around all of the triangles and then splitting the triangles into groups and sub groups and so on, each with their own bounding volume to create a hierarchy of bounding volumes the program can traverse to more quickly test intersection.  I split the groups based on whether or not the centers of the triangles were above or below the midpoint of the longest axis of the bounding volume encompassing them.
 Intersection for a ray is tested using a BVH tree by first testing if the ray hits the highest level bounding volume and if so it tests the bounding volume's two children. This continues down the tree to the "leaves" which are the actual triangles. This should reduce the amount of intersection tests needed to be done since instead of brute force checking intersection with every triangle, whole groups of triangles can be ignored if the ray doesn't intersect with their bounding volume. As shown in the graph above, this considerably cuts down on the time it takes to compute intersections for even mildly complex triangle meshes.
 
 The BVH tree construction was done on the CPU and then buffered to the GPU, and the traversal is done on the GPU as part of the rest of the GPU pathtracing code.
 
-boxwithcow
-3266.386 ms/frame with BVH
-5564.163 without BVH
 
 #### Feature Toggles
 
@@ -74,9 +78,15 @@ If you want to try the features described above, there are the following macros 
 - sample glTF models: https://github.com/KhronosGroupArchives/glTF-Sample-Models
 - sample obj models (converted to glTF in blender): https://github.com/alecjacobson/common-3d-test-models
 - PBR book: https://pbr-book.org/3ed-2018
+- Thrust Examples of sort from NVIDIA CCCL: https://github.com/NVIDIA/cccl/blob/main/thrust/examples/sort.cu
 - OpenGL code I wrote from my CIS 5610 pathtracer
 
 #### Bloopers/Bugs
 
 <img src="img/blooperNonRandomBounces.png" width="400" >
+
+In the above image my rays were not bouncing in random directions and instead were bouncing in the same direction every time they were shot from the camera, causing this artifact.
+
 <img src="img/blooperDivideByPi.png" width="400" >
+
+When this image was rendered I was not calculating diffuse albedo by dividing the material color by PI. Instead I was just using the material color as the albedo. I was still dividing by the diffuse pdf though, so at each bounce the color was getting amplified resulting in this blown out image.
